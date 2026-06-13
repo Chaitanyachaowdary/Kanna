@@ -1,0 +1,6 @@
+{
+  "name": "Kanna AI",
+  "description": "Autonomous, privacy-focused secure personal AI assistant that autodetects, screens, and auto-answers calls, tracks corporate calendar meetings, and implements smart social posting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
