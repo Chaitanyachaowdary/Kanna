@@ -2,6 +2,7 @@ package com.example.data.db
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
 import com.example.data.security.DatabaseKeyProvider
 import kotlinx.coroutines.flow.Flow
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
@@ -437,7 +438,7 @@ interface AuraDao {
         AiActionHistoryEntity::class
     ],
     version = 14, // Bumped to support AI action history
-    exportSchema = false
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dao(): AuraDao
@@ -447,6 +448,15 @@ abstract class AppDatabase : RoomDatabase() {
         private var INSTANCE: AppDatabase? = null
 
         private const val DB_NAME = "aura_database"
+
+        /**
+         * Ordered Room migrations. v14 is the exported baseline schema (see
+         * app/schemas). When you change any entity, bump the [Database] version
+         * and add a `Migration(oldVersion, newVersion)` here that ALTERs the
+         * tables — do NOT reintroduce `fallbackToDestructiveMigration`, which
+         * silently wipes all on-device user data on every schema change.
+         */
+        val ALL_MIGRATIONS: Array<Migration> = arrayOf()
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -469,7 +479,7 @@ abstract class AppDatabase : RoomDatabase() {
 
             return Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME)
                 .openHelperFactory(SupportOpenHelperFactory(passphrase))
-                .fallbackToDestructiveMigration()
+                .addMigrations(*ALL_MIGRATIONS)
                 .build()
         }
 
