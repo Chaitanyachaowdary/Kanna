@@ -2,7 +2,9 @@ package com.example.data.db
 
 import android.content.Context
 import androidx.room.*
+import com.example.data.security.DatabaseKeyProvider
 import kotlinx.coroutines.flow.Flow
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 // --- Room Entities for Aura AI ---
 
@@ -444,17 +446,37 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        private const val DB_NAME = "aura_database"
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "aura_database"
-                )
-                    .fallbackToDestructiveMigration()
-                    .build()
-                INSTANCE = instance
-                instance
+                INSTANCE ?: buildEncryptedDatabase(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+
+        private fun buildEncryptedDatabase(appContext: Context): AppDatabase {
+            // Native SQLCipher library; safe to call repeatedly.
+            System.loadLibrary("sqlcipher")
+
+            val passphrase = DatabaseKeyProvider.getOrCreatePassphrase(appContext)
+
+            // The very first encrypted launch cannot open any database file left
+            // behind by a previous unencrypted build — discard it so SQLCipher can
+            // create a fresh, encrypted store rather than failing to open plaintext.
+            if (DatabaseKeyProvider.passphraseWasJustCreated) {
+                deleteLegacyPlaintextDatabase(appContext)
+            }
+
+            return Room.databaseBuilder(appContext, AppDatabase::class.java, DB_NAME)
+                .openHelperFactory(SupportOpenHelperFactory(passphrase))
+                .fallbackToDestructiveMigration()
+                .build()
+        }
+
+        private fun deleteLegacyPlaintextDatabase(appContext: Context) {
+            listOf("", "-wal", "-shm", "-journal").forEach { suffix ->
+                val file = appContext.getDatabasePath(DB_NAME + suffix)
+                if (file.exists()) file.delete()
             }
         }
     }
