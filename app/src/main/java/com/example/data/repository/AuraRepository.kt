@@ -30,7 +30,10 @@ data class ProcessedNotificationResult(
     val urgency: String
 )
 
-class AuraRepository(private val dao: AuraDao) {
+class AuraRepository(
+    private val dao: AuraDao,
+    private val loggingPolicy: AiLoggingPolicy = AiLoggingPolicy.AlwaysOn,
+) {
 
     val chatMessages: Flow<List<ChatMessageEntity>> = dao.getChatMessages()
     val userProfile: Flow<UserProfileEntity?> = dao.getUserProfileFlow()
@@ -975,6 +978,8 @@ class AuraRepository(private val dao: AuraDao) {
     }
 
     suspend fun insertAiAction(action: AiActionHistoryEntity) {
+        // Respect the user's per-category logging opt-outs (single gate for every call site).
+        if (!loggingPolicy.shouldLog(action.actionType)) return
         dao.insertAiAction(action)
     }
 

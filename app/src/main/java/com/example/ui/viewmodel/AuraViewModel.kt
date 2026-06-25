@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.AuraWakeWordWatcher
+import com.example.data.repository.AiActionCategory
+import com.example.data.repository.SharedPrefsAiLoggingPolicy
 import com.example.data.db.ChatMessageEntity
 import com.example.data.db.UserProfileEntity
 import com.example.data.db.NotificationEntity
@@ -73,6 +75,47 @@ class AuraViewModel(private val repository: AuraRepository) : ViewModel() {
 
     val aiActionHistory: StateFlow<List<com.example.data.db.AiActionHistoryEntity>> = repository.aiActionHistory
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Dashboard search/filter state for the AI action history.
+    private val _aiHistorySearchQuery = MutableStateFlow("")
+    val aiHistorySearchQuery: StateFlow<String> = _aiHistorySearchQuery.asStateFlow()
+
+    private val _aiHistoryCategoryFilter = MutableStateFlow<AiActionCategory?>(null)
+    val aiHistoryCategoryFilter: StateFlow<AiActionCategory?> = _aiHistoryCategoryFilter.asStateFlow()
+
+    val filteredAiActionHistory: StateFlow<List<com.example.data.db.AiActionHistoryEntity>> =
+        combine(repository.aiActionHistory, _aiHistorySearchQuery, _aiHistoryCategoryFilter) { list, query, category ->
+            com.example.data.repository.filterAiActions(list, query, category)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun updateAiHistorySearchQuery(query: String) {
+        _aiHistorySearchQuery.value = query
+    }
+
+    fun updateAiHistoryCategoryFilter(category: AiActionCategory?) {
+        _aiHistoryCategoryFilter.value = category
+    }
+
+    /** Writes the currently filtered AI action history to [uri] in [format], off the main thread. */
+    fun exportAiActionHistory(
+        uri: android.net.Uri,
+        format: com.example.data.repository.ExportFormat,
+        contentResolver: android.content.ContentResolver,
+    ) {
+        val items = filteredAiActionHistory.value
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val payload = com.example.data.repository.AiActionHistoryExporter.export(items, format)
+                contentResolver.openOutputStream(uri)?.use { stream ->
+                    stream.write(payload.toByteArray(Charsets.UTF_8))
+                } ?: throw java.io.IOException("Could not open output stream for export.")
+                AuraDiagnostics.log("SYSTEM", "INFO", "Exported ${items.size} AI action records as ${format.name}.")
+                addPrivacyInsight("Data Portability", "Exported ${items.size} AI action history records to a user-selected ${format.name} file.")
+            } catch (e: Exception) {
+                AuraDiagnostics.log("SYSTEM", "ERROR", "AI action history export failed: ${e.message}")
+            }
+        }
+    }
 
     // Deep Work state
     private val _isDeepWorkActive = MutableStateFlow(false)
@@ -375,6 +418,15 @@ class AuraViewModel(private val repository: AuraRepository) : ViewModel() {
     private val _autoDeleteDays = MutableStateFlow(0) // 0 means disabled
     val autoDeleteDays: StateFlow<Int> = _autoDeleteDays.asStateFlow()
 
+    // Master switch + per-category opt-outs for AI action history logging.
+    private val _aiLoggingEnabled = MutableStateFlow(true)
+    val aiLoggingEnabled: StateFlow<Boolean> = _aiLoggingEnabled.asStateFlow()
+
+    private val _aiLoggingCategoryEnabled =
+        MutableStateFlow(AiActionCategory.entries.associateWith { true })
+    val aiLoggingCategoryEnabled: StateFlow<Map<AiActionCategory, Boolean>> =
+        _aiLoggingCategoryEnabled.asStateFlow()
+
     private val _researchModeEnabled = MutableStateFlow(false)
     val researchModeEnabled: StateFlow<Boolean> = _researchModeEnabled.asStateFlow()
 
@@ -435,6 +487,11 @@ class AuraViewModel(private val repository: AuraRepository) : ViewModel() {
             _isAppUnlocked.value = !p.getBoolean("app_passcode_enabled", false)
             _autoDeleteDays.value = p.getInt("auto_delete_interval_days", 0)
             _isOnDeviceProcessingEnabled.value = p.getBoolean("on_device_processing_enabled", true)
+
+            _aiLoggingEnabled.value = p.getBoolean(SharedPrefsAiLoggingPolicy.KEY_MASTER, true)
+            _aiLoggingCategoryEnabled.value = AiActionCategory.entries.associateWith { cat ->
+                p.getBoolean(SharedPrefsAiLoggingPolicy.categoryKey(cat), true)
+            }
 
             val cleanupDays = p.getInt("auto_delete_interval_days", 0)
             if (cleanupDays > 0) {
@@ -2145,6 +2202,19 @@ class AuraViewModel(private val repository: AuraRepository) : ViewModel() {
         prefs?.edit()?.putBoolean("dnd_sync_enabled", enabled)?.apply()
         refreshSystemDndActiveState(context)
         AuraDiagnostics.log("PRIVACY", "INFO", "Do Not Disturb logic synchronization has been ${if (enabled) "ENABLED" else "DISABLED"}.")
+    }
+
+    fun updateAiLoggingEnabled(enabled: Boolean) {
+        _aiLoggingEnabled.value = enabled
+        prefs?.edit()?.putBoolean(SharedPrefsAiLoggingPolicy.KEY_MASTER, enabled)?.apply()
+        AuraDiagnostics.log("PRIVACY", "INFO", "AI action history logging has been ${if (enabled) "ENABLED" else "DISABLED"}.")
+    }
+
+    fun updateAiLoggingCategoryEnabled(category: AiActionCategory, enabled: Boolean) {
+        _aiLoggingCategoryEnabled.value = _aiLoggingCategoryEnabled.value.toMutableMap()
+            .apply { put(category, enabled) }
+        prefs?.edit()?.putBoolean(SharedPrefsAiLoggingPolicy.categoryKey(category), enabled)?.apply()
+        AuraDiagnostics.log("PRIVACY", "INFO", "AI action logging for ${category.label} category has been ${if (enabled) "ENABLED" else "DISABLED"}.")
     }
 
     fun refreshSystemDndActiveState(context: android.content.Context) {

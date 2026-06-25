@@ -88,7 +88,9 @@ import com.example.data.db.PrivacyInsightEntity
 import com.example.data.db.CallScreeningRuleEntity
 import com.example.data.db.EmailTemplateEntity
 import com.example.data.diagnostics.*
+import com.example.data.repository.AiActionCategory
 import com.example.data.repository.AuraRepository
+import com.example.data.repository.SharedPrefsAiLoggingPolicy
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.AuraViewModel
 import com.example.ui.viewmodel.AuraViewModelFactory
@@ -123,7 +125,10 @@ class MainActivity : ComponentActivity() {
         }
 
         val database = AppDatabase.getDatabase(this)
-        val repository = AuraRepository(database.dao())
+        val loggingPolicy = SharedPrefsAiLoggingPolicy(
+            getSharedPreferences("aura_prefs", MODE_PRIVATE)
+        )
+        val repository = AuraRepository(database.dao(), loggingPolicy)
 
         setContent {
             MyApplicationTheme {
@@ -244,6 +249,11 @@ fun AuraAppContent(repository: AuraRepository) {
     val screenedTranscripts by vm.screenedTranscripts.collectAsStateWithLifecycle()
     val versionInstallations by vm.versionInstallations.collectAsStateWithLifecycle()
     val aiActionHistory by vm.aiActionHistory.collectAsStateWithLifecycle()
+    val filteredAiActionHistory by vm.filteredAiActionHistory.collectAsStateWithLifecycle()
+    val aiHistorySearchQuery by vm.aiHistorySearchQuery.collectAsStateWithLifecycle()
+    val aiHistoryCategoryFilter by vm.aiHistoryCategoryFilter.collectAsStateWithLifecycle()
+    val aiLoggingEnabled by vm.aiLoggingEnabled.collectAsStateWithLifecycle()
+    val aiLoggingCategoryEnabled by vm.aiLoggingCategoryEnabled.collectAsStateWithLifecycle()
     val currentVersion by vm.currentVersion.collectAsStateWithLifecycle()
 
     val availableVersion by vm.availableVersion.collectAsStateWithLifecycle()
@@ -627,7 +637,17 @@ fun AuraAppContent(repository: AuraRepository) {
                     onSelectVoiceProfile = { vm.selectVoiceProfile(it) },
                     aiActionHistory = aiActionHistory,
                     onDeleteAiAction = { vm.deleteAiAction(it) },
-                    onClearAiActionHistory = { vm.clearAiActionHistory() }
+                    onClearAiActionHistory = { vm.clearAiActionHistory() },
+                    aiLoggingEnabled = aiLoggingEnabled,
+                    aiLoggingCategoryEnabled = aiLoggingCategoryEnabled,
+                    onToggleAiLogging = { vm.updateAiLoggingEnabled(it) },
+                    onToggleAiLoggingCategory = { cat, enabled -> vm.updateAiLoggingCategoryEnabled(cat, enabled) },
+                    filteredAiActionHistory = filteredAiActionHistory,
+                    aiHistorySearchQuery = aiHistorySearchQuery,
+                    aiHistoryCategoryFilter = aiHistoryCategoryFilter,
+                    onAiHistorySearchQueryChange = { vm.updateAiHistorySearchQuery(it) },
+                    onAiHistoryCategoryFilterChange = { vm.updateAiHistoryCategoryFilter(it) },
+                    onExportAiHistory = { uri, format -> vm.exportAiActionHistory(uri, format, context.contentResolver) }
                 )
                 HorizontalDivider(color = BorderGrey, thickness = 1.dp)
             }
@@ -4165,6 +4185,34 @@ fun InterceptionDashboard(
 }
 
 @Composable
+private fun AiHistoryFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) PrimaryAccent.copy(alpha = 0.2f) else SurfaceDark)
+            .border(
+                1.dp,
+                if (selected) PrimaryAccent else BorderGrey,
+                RoundedCornerShape(12.dp)
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = label,
+            color = if (selected) PrimaryAccent else TextMuted,
+            fontSize = 10.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            fontFamily = FontFamily.Monospace
+        )
+    }
+}
+
+@Composable
 fun ProfileConfigurationPanel(
     initialSubTab: Int = 0,
     profile: UserProfileEntity,
@@ -4241,9 +4289,25 @@ fun ProfileConfigurationPanel(
     isSystemDndActive: Boolean = false,
     aiActionHistory: List<com.example.data.db.AiActionHistoryEntity> = emptyList(),
     onDeleteAiAction: (Int) -> Unit = {},
-    onClearAiActionHistory: () -> Unit = {}
+    onClearAiActionHistory: () -> Unit = {},
+    aiLoggingEnabled: Boolean = true,
+    aiLoggingCategoryEnabled: Map<AiActionCategory, Boolean> = emptyMap(),
+    onToggleAiLogging: (Boolean) -> Unit = {},
+    onToggleAiLoggingCategory: (AiActionCategory, Boolean) -> Unit = { _, _ -> },
+    filteredAiActionHistory: List<com.example.data.db.AiActionHistoryEntity> = emptyList(),
+    aiHistorySearchQuery: String = "",
+    aiHistoryCategoryFilter: AiActionCategory? = null,
+    onAiHistorySearchQueryChange: (String) -> Unit = {},
+    onAiHistoryCategoryFilterChange: (AiActionCategory?) -> Unit = {},
+    onExportAiHistory: (android.net.Uri, com.example.data.repository.ExportFormat) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
+    val exportJsonLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> uri?.let { onExportAiHistory(it, com.example.data.repository.ExportFormat.JSON) } }
+    val exportCsvLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri -> uri?.let { onExportAiHistory(it, com.example.data.repository.ExportFormat.CSV) } }
     var activeSubTab by remember(initialSubTab) { mutableStateOf(initialSubTab) } // 0: Profile, 1: API Authorize, 2: Logs, 3: Privacy
     
     // Profile Fields
@@ -5199,19 +5263,44 @@ fun ProfileConfigurationPanel(
                             color = SecondaryAccent,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
                         )
                         if (aiActionHistory.isNotEmpty()) {
-                            Button(
-                                onClick = onClearAiActionHistory,
-                                colors = ButtonDefaults.buttonColors(containerColor = AlertOrange.copy(alpha = 0.15f)),
-                                border = BorderStroke(1.dp, AlertOrange),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                modifier = Modifier.height(28.dp).testTag("clear_ai_history_btn")
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = "Clear all", tint = AlertOrange, modifier = Modifier.size(12.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("CLEAR ALL", color = AlertOrange, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Button(
+                                    onClick = { exportJsonLauncher.launch("aura_ai_history.json") },
+                                    colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent.copy(alpha = 0.15f)),
+                                    border = BorderStroke(1.dp, SecondaryAccent),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(28.dp).testTag("export_ai_history_json_btn")
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = "Export JSON", tint = SecondaryAccent, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("JSON", color = SecondaryAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                                Button(
+                                    onClick = { exportCsvLauncher.launch("aura_ai_history.csv") },
+                                    colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent.copy(alpha = 0.15f)),
+                                    border = BorderStroke(1.dp, SecondaryAccent),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(28.dp).testTag("export_ai_history_csv_btn")
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = "Export CSV", tint = SecondaryAccent, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("CSV", color = SecondaryAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                                Button(
+                                    onClick = onClearAiActionHistory,
+                                    colors = ButtonDefaults.buttonColors(containerColor = AlertOrange.copy(alpha = 0.15f)),
+                                    border = BorderStroke(1.dp, AlertOrange),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(28.dp).testTag("clear_ai_history_btn")
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Clear all", tint = AlertOrange, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("CLEAR ALL", color = AlertOrange, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
                             }
                         }
                     }
@@ -5226,7 +5315,141 @@ fun ProfileConfigurationPanel(
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // --- Logging controls: master switch + per-category opt-outs ---
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(SurfaceDark)
+                            .border(1.dp, BorderGrey, RoundedCornerShape(6.dp))
+                            .padding(12.dp)
+                            .testTag("ai_logging_controls")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "RECORD AI ACTIONS",
+                                    color = SecondaryAccent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Master switch for on-device AI action logging. Disable specific categories below.",
+                                    color = TextMuted,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Switch(
+                                checked = aiLoggingEnabled,
+                                onCheckedChange = { onToggleAiLogging(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = SecondaryAccent,
+                                    checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f),
+                                    uncheckedThumbColor = BorderGrey,
+                                    uncheckedTrackColor = SurfaceDark
+                                ),
+                                modifier = Modifier.testTag("ai_logging_master_switch")
+                            )
+                        }
+
+                        if (aiLoggingEnabled) {
+                            HorizontalDivider(
+                                color = BorderGrey,
+                                thickness = 1.dp,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                            AiActionCategory.entries.forEach { category ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = category.label,
+                                        color = TextLight,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Switch(
+                                        checked = aiLoggingCategoryEnabled[category] ?: true,
+                                        onCheckedChange = { onToggleAiLoggingCategory(category, it) },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = SecondaryAccent,
+                                            checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f),
+                                            uncheckedThumbColor = BorderGrey,
+                                            uncheckedTrackColor = SurfaceDark
+                                        ),
+                                        modifier = Modifier.testTag("ai_logging_cat_${category.name}")
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // --- Search + category filter (only when there is history to filter) ---
+                    if (aiActionHistory.isNotEmpty()) {
+                        OutlinedTextField(
+                            value = aiHistorySearchQuery,
+                            onValueChange = onAiHistorySearchQueryChange,
+                            label = { Text("Search prompts & responses", color = TextMuted, fontFamily = FontFamily.Monospace, fontSize = 11.sp) },
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = TextMuted, modifier = Modifier.size(16.dp)) },
+                            trailingIcon = {
+                                if (aiHistorySearchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { onAiHistorySearchQueryChange("") }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear search", tint = TextMuted, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryAccent,
+                                unfocusedBorderColor = BorderGrey,
+                                focusedTextColor = TextLight,
+                                unfocusedTextColor = TextLight
+                            ),
+                            modifier = Modifier.fillMaxWidth().testTag("ai_history_search_field")
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .testTag("ai_history_filter_chips"),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // "All" chip clears the category filter.
+                            AiHistoryFilterChip(
+                                label = "All",
+                                selected = aiHistoryCategoryFilter == null,
+                                onClick = { onAiHistoryCategoryFilterChange(null) }
+                            )
+                            AiActionCategory.entries.forEach { category ->
+                                AiHistoryFilterChip(
+                                    label = category.label,
+                                    selected = aiHistoryCategoryFilter == category,
+                                    onClick = {
+                                        onAiHistoryCategoryFilterChange(
+                                            if (aiHistoryCategoryFilter == category) null else category
+                                        )
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
 
                     if (aiActionHistory.isEmpty()) {
                         Box(
@@ -5245,12 +5468,30 @@ fun ProfileConfigurationPanel(
                                 fontFamily = FontFamily.Monospace
                             )
                         }
+                    } else if (filteredAiActionHistory.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(SurfaceDark)
+                                .border(1.dp, BorderGrey, RoundedCornerShape(6.dp))
+                                .padding(16.dp)
+                                .testTag("ai_history_no_matches"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No actions match your search or filter.",
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     } else {
                         Column(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxWidth().testTag("ai_history_list")
                         ) {
-                            aiActionHistory.forEach { action ->
+                            filteredAiActionHistory.forEach { action ->
                                 val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(
                                     java.util.Date(action.timestamp)
                                 )
