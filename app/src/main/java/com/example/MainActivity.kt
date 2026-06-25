@@ -4331,7 +4331,8 @@ fun ProfileConfigurationPanel(
 
     val isApiKeyValid = remember(apiKeyInput) {
         val trimmed = apiKeyInput.trim()
-        trimmed.isEmpty() || (trimmed.startsWith("AIzaSy") && trimmed.length in 35..45 && trimmed.all { it.isLetterOrDigit() || it == '-' || it == '_' })
+        // Accept classic "AIzaSy..." keys and newer "AQ.<...>" AI Studio keys (longer, may contain dots).
+        trimmed.isEmpty() || (trimmed.length in 20..200 && trimmed.all { it.isLetterOrDigit() || it == '-' || it == '_' || it == '.' })
     }
 
     LaunchedEffect(customKey, customEndpoint, customModel, customTimeout, customBackoff, cryptoPassphrase) {
@@ -4603,7 +4604,7 @@ fun ProfileConfigurationPanel(
                         isError = !isApiKeyValid,
                         supportingText = {
                             if (!isApiKeyValid) {
-                                Text("Invalid format: Must start with 'AIzaSy' and be 35-45 chars long", color = Color(0xFFFF5555), fontSize = 10.sp)
+                                Text("Invalid format: use only letters, digits, '.', '-', '_' (20-200 chars)", color = Color(0xFFFF5555), fontSize = 10.sp)
                             }
                         },
                         visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
