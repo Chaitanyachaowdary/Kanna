@@ -44,6 +44,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,18 +52,28 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.example.data.db.AppDatabase
 import com.example.data.db.ChatMessageEntity
 import com.example.data.db.NotificationEntity
@@ -72,10 +83,15 @@ import com.example.data.db.SecureFileEntity
 import com.example.data.db.SocialPostEntity
 import com.example.data.db.CallSessionEntity
 import com.example.data.db.CalendarEventEntity
-import com.example.data.repository.JobHunterRepository
+import com.example.data.db.AuraTaskEntity
+import com.example.data.db.PrivacyInsightEntity
+import com.example.data.db.CallScreeningRuleEntity
+import com.example.data.db.EmailTemplateEntity
+import com.example.data.diagnostics.*
+import com.example.data.repository.AuraRepository
 import com.example.ui.theme.MyApplicationTheme
-import com.example.ui.viewmodel.JobHunterViewModel
-import com.example.ui.viewmodel.JobHunterViewModelFactory
+import com.example.ui.viewmodel.AuraViewModel
+import com.example.ui.viewmodel.AuraViewModelFactory
 import com.example.ui.viewmodel.RecentReplyItem
 import kotlinx.coroutines.launch
 
@@ -107,7 +123,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val database = AppDatabase.getDatabase(this)
-        val repository = JobHunterRepository(database.dao())
+        val repository = AuraRepository(database.dao())
 
         setContent {
             MyApplicationTheme {
@@ -123,9 +139,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AuraAppContent(repository: JobHunterRepository) {
-    val vm: JobHunterViewModel = viewModel(
-        factory = JobHunterViewModelFactory(repository)
+fun AuraAppContent(repository: AuraRepository) {
+    val vm: AuraViewModel = viewModel(
+        factory = AuraViewModelFactory(repository)
     )
 
     val currentMessages by vm.chatMessages.collectAsStateWithLifecycle()
@@ -141,7 +157,7 @@ fun AuraAppContent(repository: JobHunterRepository) {
     val processingSocialPostId by vm.processingSocialPostId.collectAsStateWithLifecycle()
     val isVoiceActive by vm.isVoiceActive.collectAsStateWithLifecycle()
     val voiceOutputText by vm.voiceOutputText.collectAsStateWithLifecycle()
-    val isSiriOverlayVisible by vm.isSiriOverlayVisible.collectAsStateWithLifecycle()
+    val isKannaOverlayVisible by vm.isKannaOverlayVisible.collectAsStateWithLifecycle()
 
     val currentSuggestions by vm.currentSuggestions.collectAsStateWithLifecycle()
     val isSuggestionsLoading by vm.isSuggestionsLoading.collectAsStateWithLifecycle()
@@ -192,16 +208,114 @@ fun AuraAppContent(repository: JobHunterRepository) {
     val isScrapingInProgress by vm.isScrapingInProgress.collectAsStateWithLifecycle()
     val generatedLinkedInVisualPrompt by vm.generatedLinkedInVisualPrompt.collectAsStateWithLifecycle()
     val linkedinVisualImageReady by vm.linkedinVisualImageReady.collectAsStateWithLifecycle()
+    val auraTasks by vm.auraTasks.collectAsStateWithLifecycle()
+    val professionalTone by vm.professionalTone.collectAsStateWithLifecycle()
+    val callScreeningRules by vm.callScreeningRules.collectAsStateWithLifecycle()
+    val emailTemplates by vm.emailTemplates.collectAsStateWithLifecycle()
+    val isOnDeviceProcessingEnabled by vm.isOnDeviceProcessingEnabled.collectAsStateWithLifecycle()
+
+    val geminiStatus by AuraDiagnostics.geminiStatus.collectAsStateWithLifecycle()
+    val localStorageStatus by AuraDiagnostics.localStorageStatus.collectAsStateWithLifecycle()
+    val lastErrorMessage by AuraDiagnostics.lastErrorMessage.collectAsStateWithLifecycle()
+    val diagnosticLogs by AuraDiagnostics.logs.collectAsStateWithLifecycle()
+    val customApiKey by vm.customApiKey.collectAsStateWithLifecycle()
+    val customEndpoint by vm.customEndpoint.collectAsStateWithLifecycle()
+    val customModelOverride by vm.customModelOverride.collectAsStateWithLifecycle()
+    val customTimeoutSeconds by vm.customTimeoutSeconds.collectAsStateWithLifecycle()
+    val backoffStrategy by vm.backoffStrategy.collectAsStateWithLifecycle()
+
+    val autoModelUpdatesEnabled by vm.autoModelUpdatesEnabled.collectAsStateWithLifecycle()
+    val privacyFirstMode by vm.privacyFirstMode.collectAsStateWithLifecycle()
+    val dndSyncEnabled by vm.dndSyncEnabled.collectAsStateWithLifecycle()
+    val isSystemDndActive by vm.isSystemDndActive.collectAsStateWithLifecycle()
+    val cryptoPassphrase by vm.cryptoPassphrase.collectAsStateWithLifecycle()
+    val isEncryptionActive by vm.isEncryptionActive.collectAsStateWithLifecycle()
+    val privacyInsights by vm.privacyInsights.collectAsStateWithLifecycle()
+
+    val appPasscode by vm.appPasscode.collectAsStateWithLifecycle()
+    val isPasscodeLockEnabled by vm.isPasscodeLockEnabled.collectAsStateWithLifecycle()
+    val isAppUnlocked by vm.isAppUnlocked.collectAsStateWithLifecycle()
+    val autoDeleteDays by vm.autoDeleteDays.collectAsStateWithLifecycle()
+
+    val isDeepWorkActive by vm.isDeepWorkActive.collectAsStateWithLifecycle()
+    val deepWorkTimeRemaining by vm.deepWorkTimeRemaining.collectAsStateWithLifecycle()
+    val deepWorkDurationMinutes by vm.deepWorkDurationMinutes.collectAsStateWithLifecycle()
+    val contacts by vm.contacts.collectAsStateWithLifecycle()
+    val screenedTranscripts by vm.screenedTranscripts.collectAsStateWithLifecycle()
+    val versionInstallations by vm.versionInstallations.collectAsStateWithLifecycle()
+    val aiActionHistory by vm.aiActionHistory.collectAsStateWithLifecycle()
+    val currentVersion by vm.currentVersion.collectAsStateWithLifecycle()
+
+    val availableVersion by vm.availableVersion.collectAsStateWithLifecycle()
+    val isUpdateAvailable by vm.isUpdateAvailable.collectAsStateWithLifecycle()
+    val isCheckingForUpdates by vm.isCheckingForUpdates.collectAsStateWithLifecycle()
+    val updateStatusMessage by vm.updateStatusMessage.collectAsStateWithLifecycle()
+
+    val researchModeEnabled by vm.researchModeEnabled.collectAsStateWithLifecycle()
+    val powerSaverEnabled by vm.powerSaverEnabled.collectAsStateWithLifecycle()
+    val customVoiceToneGenerated by vm.customVoiceToneGenerated.collectAsStateWithLifecycle()
+    val notificationFrequency24h by vm.notificationFrequency24h.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var activeTab by remember { mutableStateOf(0) } // 0: Command Centre, 1: Interceptor Feed, 2: Postmaster Mail Hub, 3: Kanna AI Cabin
+    var showProfileConfig by remember { mutableStateOf(false) }
+    var settingsActiveSubTab by remember { mutableStateOf(0) }
+    var showUpdateToast by remember { mutableStateOf(true) }
+    var isPermissionActive by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         vm.initPreferencesAndAudio(context)
+        vm.refreshSystemDndActiveState(context)
     }
 
-    var activeTab by remember { mutableStateOf(0) } // 0: Command Centre, 1: Interceptor Feed, 2: Postmaster Mail Hub, 3: Siri & Drive Cabin
-    var showProfileConfig by remember { mutableStateOf(false) }
-    var isPermissionActive by remember { mutableStateOf(false) }
+    LaunchedEffect(isUpdateAvailable) {
+        if (isUpdateAvailable) {
+            showUpdateToast = true
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                vm.lockApp()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        var activeToast: android.widget.Toast? = null
+        var lastToastTime = 0L
+        var lastMsg = ""
+        AuraDiagnostics.errorEvents.collect { errorMsg ->
+            val now = System.currentTimeMillis()
+            // Avoid showing duplicate error messages inside 2.5 seconds
+            if (errorMsg != lastMsg || (now - lastToastTime) > 2500) {
+                lastMsg = errorMsg
+                lastToastTime = now
+                try {
+                    activeToast?.cancel()
+                } catch (e: Exception) {
+                    // Ignore
+                }
+                val newToast = android.widget.Toast.makeText(
+                    context,
+                    "API Request Failed: $errorMsg",
+                    android.widget.Toast.LENGTH_LONG
+                )
+                activeToast = newToast
+                newToast.show()
+            }
+            // Automatically expand the diagnostic/configuration panel
+            showProfileConfig = true
+        }
+    }
 
     // Continuous Speech Wake Word Detection Engine Integration
     var isMicGranted by remember {
@@ -265,16 +379,43 @@ fun AuraAppContent(repository: JobHunterRepository) {
         }
     )
 
-    // Periodically sync permission check during active composition
+    val calendarPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            if (isGranted) {
+                vm.syncLocalCalendarEvents(context)
+                android.widget.Toast.makeText(context, "Calendar integration configured successfully.", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                android.widget.Toast.makeText(context, "Calendar permission denied. Priority-filtering will rely on static presets.", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    )
+
+    // Periodically sync permission check and sync calendar during active composition
     LaunchedEffect(Unit) {
         val cn = ComponentName(context, AuraNotificationService::class.java)
         val flat = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
         isPermissionActive = flat != null && flat.contains(cn.flattenToString())
+        
+        val hasCalPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.READ_CALENDAR
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (hasCalPerm) {
+            vm.syncLocalCalendarEvents(context)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
+        if (isPasscodeLockEnabled && !isAppUnlocked) {
+            LockScreenOverlay(
+                onUnlockAttempt = { pin ->
+                    vm.unlockApp(pin)
+                }
+            )
+        } else {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
         bottomBar = {
             NavigationBar(
                 modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
@@ -323,8 +464,8 @@ fun AuraAppContent(repository: JobHunterRepository) {
                 NavigationBarItem(
                     selected = activeTab == 3,
                     onClick = { activeTab = 3 },
-                    icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Siri & Drive") },
-                    label = { Text("Siri & Drive", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1) },
+                    icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Kanna AI") },
+                    label = { Text("Kanna AI", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = SecondaryAccent,
                         selectedTextColor = SecondaryAccent,
@@ -347,7 +488,10 @@ fun AuraAppContent(repository: JobHunterRepository) {
             HeaderBlock(
                 highThinking = highThinking,
                 profile = activeProfile ?: UserProfileEntity(),
-                onLockClick = { showProfileConfig = !showProfileConfig },
+                geminiStatus = geminiStatus,
+                localStorageStatus = localStorageStatus,
+                isUpdateAvailable = isUpdateAvailable,
+                onLockClick = { settingsActiveSubTab = 0; showProfileConfig = !showProfileConfig },
                 onToggleHighThinking = { vm.toggleHighThinking(it) }
             )
 
@@ -355,12 +499,135 @@ fun AuraAppContent(repository: JobHunterRepository) {
 
             if (showProfileConfig) {
                 ProfileConfigurationPanel(
+                    initialSubTab = settingsActiveSubTab,
                     profile = activeProfile ?: UserProfileEntity(),
+                    customKey = customApiKey,
+                    customEndpoint = customEndpoint,
+                    customModel = customModelOverride,
+                    customTimeout = customTimeoutSeconds,
+                    customBackoff = backoffStrategy,
+                    geminiStatus = geminiStatus,
+                    localStorageStatus = localStorageStatus,
+                    logs = diagnosticLogs,
+                    autoModelUpdatesEnabled = autoModelUpdatesEnabled,
+                    privacyFirstMode = privacyFirstMode,
+                    cryptoPassphrase = cryptoPassphrase,
+                    isEncryptionActive = isEncryptionActive,
+                    privacyInsights = privacyInsights,
+                    appPasscode = appPasscode,
+                    isPasscodeLockEnabled = isPasscodeLockEnabled,
+                    autoDeleteDays = autoDeleteDays,
+                    currentVersion = currentVersion,
+                    isUpdateAvailable = isUpdateAvailable,
+                    availableVersion = availableVersion,
+                    isCheckingForUpdates = isCheckingForUpdates,
+                    updateStatusMessage = updateStatusMessage,
+                    versionInstallations = versionInstallations,
+                    onCheckForUpdates = { vm.checkForUpdatesManual() },
+                    onApplyUpdateNow = { vm.applyUpdateNow() },
                     onClose = { showProfileConfig = false },
-                    onSave = { name, email, autoReply, secLevel, wakeWord, lockscreen ->
+                    onSaveProfile = { name, email, autoReply, secLevel, wakeWord, lockscreen ->
                         vm.saveProfile(name, email, autoReply, secLevel, wakeWord, lockscreen)
-                        showProfileConfig = false
-                    }
+                    },
+                    onSaveApiSettings = { key, endPt, modelSym, timeoutSecs, backoffStrat ->
+                        vm.updateCustomApiSettings(key, endPt, modelSym, timeoutSecs, backoffStrat)
+                    },
+                    onResetApiSettings = {
+                        vm.resetApiSettingsToDefaults()
+                    },
+                    onTestDiagnostics = {
+                        coroutineScope.launch {
+                            val success = vm.testDiagnosticsHandshakeDirect()
+                            if (success) {
+                                android.widget.Toast.makeText(context, "Handshake successful! Gemini API is responsive.", android.widget.Toast.LENGTH_LONG).show()
+                            } else {
+                                android.widget.Toast.makeText(context, "Handshake failed. Check key, gateway endpoint, or connection parameters.", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    onClearLogs = {
+                        AuraDiagnostics.clear()
+                    },
+                    onToggleAutoModelUpdates = { vm.updateAutoModelUpdatesEnabled(it) },
+                    onTogglePrivacyFirstMode = { vm.updatePrivacyFirstMode(it) },
+                    onUpdateEncryptionSettings = { active, phrase -> vm.updateEncryptionAndPassphrase(active, phrase) },
+                    onClearPrivacyInsights = { vm.clearPrivacyInsightsList() },
+                    onManualTrigger = { vm.runManualDiagnosticsAndPolling() },
+                    onUpdatePasscodeSettings = { pin, active -> vm.updatePasscodeSettings(pin, active) },
+                    onUpdateAutoDeleteInterval = { days -> vm.updateAutoDeleteInterval(days) },
+                    onClearAllLocalData = { vm.clearAllLocalDataSecurely() },
+                    callScreeningRules = callScreeningRules,
+                    emailTemplates = emailTemplates,
+                    isOnDeviceProcessingEnabled = isOnDeviceProcessingEnabled,
+                    onAddCallScreeningRule = { pattern, action, desc -> vm.addCallScreeningRule(pattern, action, desc) },
+                    onDeleteCallScreeningRule = { id -> vm.deleteCallScreeningRule(id) },
+                    onAddEmailTemplate = { name, content, category -> vm.addEmailTemplate(name, content, category) },
+                    onDeleteEmailTemplate = { id -> vm.deleteEmailTemplate(id) },
+                    onToggleOnDeviceProcessing = { enabled -> vm.updateOnDeviceProcessing(enabled) },
+                    onSyncCalendar = {
+                        val hasCalPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+                            context,
+                            android.Manifest.permission.READ_CALENDAR
+                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        if (hasCalPerm) {
+                            vm.syncLocalCalendarEvents(context)
+                        } else {
+                            calendarPermissionLauncher.launch(android.Manifest.permission.READ_CALENDAR)
+                        }
+                    },
+                    dndSyncEnabled = dndSyncEnabled,
+                    onToggleDndSync = { vm.updateDndSyncEnabled(context, it) },
+                    isSystemDndActive = isSystemDndActive,
+                    isDeepWorkActive = isDeepWorkActive,
+                    deepWorkTimeRemaining = deepWorkTimeRemaining,
+                    deepWorkDurationMinutes = deepWorkDurationMinutes,
+                    onToggleDeepWorkMode = { vm.toggleDeepWorkMode() },
+                    onUpdateDeepWorkDuration = { mins -> vm.updateDeepWorkDuration(mins) },
+                    contacts = contacts,
+                    onAddContact = { name, phone, category, tone, priority -> vm.addContact(name, phone, category, tone, priority) },
+                    onDeleteContact = { id -> vm.deleteContact(id) },
+                    screenedTranscripts = screenedTranscripts,
+                    onDeleteScreenedTranscript = { id -> vm.deleteScreenedTranscript(id) },
+                    onClearScreenedTranscripts = { vm.clearScreenedTranscripts() },
+                    getDecryptedText = { txt, enc -> vm.getDecryptedText(txt, enc) },
+                    onExportPdfReport = {
+                        vm.exportWeeklyReportAsPdf(context) { file ->
+                            if (file != null) {
+                                coroutineScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                    try {
+                                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            file
+                                        )
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "application/pdf"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Secure PDF Report"))
+                                    } catch (e: java.lang.Exception) {
+                                        android.widget.Toast.makeText(context, "Error sharing PDF: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            } else {
+                                coroutineScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                    android.widget.Toast.makeText(context, "Failed to compile secure report.", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    },
+                    researchModeEnabled = researchModeEnabled,
+                    onToggleResearchMode = { vm.toggleResearchMode(it) },
+                    notificationFrequency24h = notificationFrequency24h,
+                    powerSaverEnabled = powerSaverEnabled,
+                    onTogglePowerSaver = { vm.togglePowerSaver(it) },
+                    onPreviewVoiceProfile = { vm.previewVoiceProfile(it) },
+                    selectedVoiceProfile = selectedVoiceProfile,
+                    onSelectVoiceProfile = { vm.selectVoiceProfile(it) },
+                    aiActionHistory = aiActionHistory,
+                    onDeleteAiAction = { vm.deleteAiAction(it) },
+                    onClearAiActionHistory = { vm.clearAiActionHistory() }
                 )
                 HorizontalDivider(color = BorderGrey, thickness = 1.dp)
             }
@@ -376,7 +643,10 @@ fun AuraAppContent(repository: JobHunterRepository) {
                         pending = chatPending,
                         highThinking = highThinking,
                         onSendMessage = { vm.sendMessage(it) },
-                        onClearChat = { vm.clearChat() }
+                        onClearChat = { vm.clearChat() },
+                        geminiStatus = geminiStatus,
+                        lastErrorMessage = lastErrorMessage,
+                        onRetryConnection = { vm.runDiagnosticConnectivityChecks() }
                     )
                     1 -> InterceptorScreen(
                         notifications = interceptedNotifications,
@@ -389,7 +659,8 @@ fun AuraAppContent(repository: JobHunterRepository) {
                         onAnalyze = { vm.analyzeNotification(it) },
                         onSendReply = { item, txt -> vm.sendNotificationReply(item, txt) },
                         onDelete = { vm.deleteNotificationItem(it) },
-                        onSimulate = { app, title, text -> vm.simulateNotificationDrop(app, title, text) }
+                        onSimulate = { app, title, text -> vm.simulateNotificationDrop(app, title, text) },
+                        callSessions = callSessions
                     )
                     2 -> PostmasterMailScreen(
                         emails = localMails,
@@ -397,9 +668,10 @@ fun AuraAppContent(repository: JobHunterRepository) {
                         onAnalyze = { vm.analyzeEmail(it) },
                         onSendReply = { email, txt -> vm.dispatchEmailResponse(email, txt) },
                         onDelete = { vm.deleteEmailItem(it) },
-                        onSimulate = { sender, subtitle, body -> vm.simulateEmailIncoming(sender, subtitle, body) }
+                        onSimulate = { sender, subtitle, body -> vm.simulateEmailIncoming(sender, subtitle, body) },
+                        emailTemplates = emailTemplates
                     )
-                    3 -> SiriAndDriveScreen(
+                    3 -> KannaAiCabinScreen(
                         profile = activeProfile ?: UserProfileEntity(),
                         secureFiles = secureFiles,
                         socialPosts = socialPosts,
@@ -438,19 +710,23 @@ fun AuraAppContent(repository: JobHunterRepository) {
                         onDraftLinkedIn = { vm.draftLinkedInCampaign(it) },
                         onQueryMeeting = { topic, question -> vm.queryActiveMeeting(topic, question) },
                         onToggleMeetingJoin = { vm.toggleRepresentativeMeetingJoin(it) },
-                        onUpdateMeetingTranscript = { vm.updateMeetingTranscriptPreset(it) }
+                        onUpdateMeetingTranscript = { vm.updateMeetingTranscriptPreset(it) },
+                        geminiStatus = geminiStatus,
+                        lastErrorMessage = lastErrorMessage,
+                        onRetryConnection = { vm.runDiagnosticConnectivityChecks() }
                     )
                 }
             }
         }
+      }
     }
 
     AnimatedVisibility(
-        visible = isSiriOverlayVisible,
+        visible = isKannaOverlayVisible,
         enter = fadeIn(),
         exit = fadeOut()
     ) {
-        SiriOverlayHUD(
+        KannaOverlayHUD(
             lastNotification = interceptedNotifications.firstOrNull(),
             isVoiceActive = isVoiceActive,
             voiceOutputText = voiceOutputText,
@@ -477,7 +753,7 @@ fun AuraAppContent(repository: JobHunterRepository) {
             assistantName = assistantName,
             selectedVoiceProfile = selectedVoiceProfile,
             callSessions = callSessions,
-            onDismiss = { vm.setSiriOverlayVisible(false) },
+            onDismiss = { vm.setKannaOverlayVisible(false) },
             onProcessCommand = { vm.processVoiceInput(it) },
             onOneTapReply = { text ->
                 interceptedNotifications.firstOrNull()?.let { lastNotif ->
@@ -512,10 +788,22 @@ fun AuraAppContent(repository: JobHunterRepository) {
             onSimulateCalendarEventJoin = { vm.simulateCalendarEventJoinSequence(it) },
             onAddNewCalendarEvent = { title, org -> vm.addNewCalendarEvent(title, org) },
             onDeleteCalendarEvent = { vm.deleteCalendarEvent(it) },
+            onUpdateCalendarEvent = { vm.updateCalendarEvent(it) },
+            onCreateSecureFile = { name, body -> vm.createSecureFile(name, body) },
+            onDraftEmailForMeeting = { vm.draftEmailForMeeting(it) },
             onTriggerWebScrapeTask = { vm.triggerWebScrapeTask() },
             onApproveScrapedComment = { vm.approveScrapedComment(it) },
             onRejectScrapedComment = { vm.rejectScrapedComment(it) },
-            onGenerateLinkedInPostWithGraphic = { vm.generateLinkedInPostWithGraphic(it) }
+            onGenerateLinkedInPostWithGraphic = { vm.generateLinkedInPostWithGraphic(it) },
+            auraTasks = auraTasks,
+            onAddTask = { vm.addTask(it) },
+            onUpdateTask = { vm.updateTask(it) },
+            onDeleteTask = { vm.deleteTask(it) },
+            professionalTone = professionalTone,
+            onUpdateProfessionalTone = { vm.updateProfessionalTone(it) },
+            customVoiceToneGenerated = customVoiceToneGenerated,
+            onVoiceSnippetRecorded = { vm.triggerVoiceSnippedRecorded() },
+            onPreviewVoiceProfile = { vm.previewVoiceProfile(it) }
         )
     }
 
@@ -532,11 +820,97 @@ fun AuraAppContent(repository: JobHunterRepository) {
             onEndCall = { vm.endCallAndSummarize() }
         )
     }
+
+    AnimatedVisibility(
+        visible = isUpdateAvailable && showUpdateToast,
+        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(bottom = 90.dp, start = 16.dp, end = 16.dp)
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            border = BorderStroke(1.dp, PrimaryAccent),
+            elevation = CardDefaults.cardElevation(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("update_toast_component")
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(PrimaryAccent)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "New Kanna AI Update Available!",
+                            color = TextLight,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Version v$availableVersion is ready to install.",
+                            color = TextMuted,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(
+                        onClick = {
+                            settingsActiveSubTab = 5
+                            showProfileConfig = true
+                            showUpdateToast = false
+                        }
+                    ) {
+                        Text(
+                            text = "GO TO UPDATES",
+                            color = PrimaryAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    IconButton(
+                        onClick = { showUpdateToast = false },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Dismiss update toast",
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 }
 
 @Composable
-fun SiriOverlayHUD(
+fun KannaOverlayHUD(
     lastNotification: NotificationEntity?,
     isVoiceActive: Boolean,
     voiceOutputText: String,
@@ -594,13 +968,27 @@ fun SiriOverlayHUD(
     onSimulateCalendarEventJoin: (Int) -> Unit,
     onAddNewCalendarEvent: (String, String) -> Unit,
     onDeleteCalendarEvent: (Int) -> Unit,
+    onUpdateCalendarEvent: (com.example.data.db.CalendarEventEntity) -> Unit = {},
+    onCreateSecureFile: (String, String) -> Unit = { _, _ -> },
+    onDraftEmailForMeeting: (com.example.data.db.CalendarEventEntity) -> Unit = {},
     onTriggerWebScrapeTask: () -> Unit,
     onApproveScrapedComment: (Int) -> Unit,
     onRejectScrapedComment: (Int) -> Unit,
-    onGenerateLinkedInPostWithGraphic: (String) -> Unit
+    onGenerateLinkedInPostWithGraphic: (String) -> Unit,
+    auraTasks: List<AuraTaskEntity>,
+    onAddTask: (AuraTaskEntity) -> Unit,
+    onUpdateTask: (AuraTaskEntity) -> Unit,
+    onDeleteTask: (Int) -> Unit,
+    professionalTone: String,
+    onUpdateProfessionalTone: (String) -> Unit,
+    customVoiceToneGenerated: Boolean = false,
+    onVoiceSnippetRecorded: () -> Unit = {},
+    onPreviewVoiceProfile: (String) -> Unit = {}
 ) {
     var rawInputText by remember { mutableStateOf("") }
     var hudTabSelected by remember { mutableStateOf(0) } // 0: ALERTS, 1: SECURE MEETINGS, 2: SOCIAL AUDITING
+    var editingSummaryEventId by remember { mutableStateOf<Int?>(null) }
+    var editingSummaryText by remember { mutableStateOf("") }
     val keyboardController = LocalSoftwareKeyboardController.current
 
     val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
@@ -1568,7 +1956,11 @@ fun SiriOverlayHUD(
                                 fontFamily = FontFamily.Monospace
                             )
                             Spacer(modifier = Modifier.height(6.dp))
-                            val voiceProfiles = listOf("Kanna Classic", "Calm Professional", "Echo Sentinel", "Stellar Voice")
+                            val voiceProfiles = if (customVoiceToneGenerated) {
+                                listOf("Kanna Classic", "Calm Professional", "Echo Sentinel", "Stellar Voice", "My Custom Profile")
+                             } else {
+                                listOf("Kanna Classic", "Calm Professional", "Echo Sentinel", "Stellar Voice")
+                             }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1594,13 +1986,214 @@ fun SiriOverlayHUD(
                                         Text(
                                             text = profile,
                                             color = if (isSelected) dynSecondaryAccent else dynTextLight,
-                                            fontSize = 9.sp,
+                                            fontSize = 8.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = FontFamily.Monospace,
                                             textAlign = TextAlign.Center
                                         )
                                     }
                                 }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Button(
+                                onClick = { 
+                                    onPreviewVoiceProfile(selectedVoiceProfile.ifEmpty { "Kanna Classic" }) 
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = dynSecondaryAccent),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(34.dp)
+                                    .testTag("preview_voice_profile_button")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = "Preview Tone",
+                                        tint = BackgroundDark,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "HEAR PREVIEW: ${selectedVoiceProfile.ifEmpty { "Kanna Classic" }.uppercase()}",
+                                        color = BackgroundDark,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // PERSIONALIZED VOICE SNIPPET RECORDING UNIT
+                            var recordingSecondsLeft by remember { mutableStateOf(0) }
+                            var isSnippetRecording by remember { mutableStateOf(false) }
+
+                            LaunchedEffect(isSnippetRecording) {
+                                if (isSnippetRecording) {
+                                    recordingSecondsLeft = 4
+                                    while (recordingSecondsLeft > 0) {
+                                        kotlinx.coroutines.delay(1000L)
+                                        recordingSecondsLeft--
+                                    }
+                                    isSnippetRecording = false
+                                    onVoiceSnippetRecorded()
+                                    onSelectVoiceProfile("My Custom Profile")
+                                }
+                            }
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(dynSurfaceDark)
+                                    .border(1.dp, dynBorderGrey.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                    .padding(12.dp)
+                                    .testTag("synthetic_tone_snippet_recorder_wrapper")
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "AURA VOICE CLONENT SYNTHESIZER",
+                                            color = dynTextLight,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = if (customVoiceToneGenerated) 
+                                                "STATUS: PERSONALIZED VOICE INSTANCE REGISTERED" 
+                                                else "STATUS: NO CUSTOM PROFILE TRAINED (STANDBY)",
+                                            color = if (customVoiceToneGenerated) dynSecondaryAccent else dynTextMuted,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = { isSnippetRecording = true },
+                                        enabled = !isSnippetRecording,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isSnippetRecording) Color.Red else dynSecondaryAccent
+                                        ),
+                                        modifier = Modifier.testTag("record_voice_snippet_button"),
+                                        shape = RoundedCornerShape(4.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isSnippetRecording) "REC: ${recordingSecondsLeft}S" else "TRAIN VOICE",
+                                            color = if (isSnippetRecording) Color.White else BackgroundDark,
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                if (isSnippetRecording) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text(
+                                        text = "Please read out loud: \n\"Configure Aura custom voice profiling, analyze intercepted notification logs to compose automatic context-aware answers.\"",
+                                        color = dynSecondaryAccent,
+                                        fontSize = 10.sp,
+                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(BackgroundDark.copy(alpha = 0.4f))
+                                            .padding(8.dp)
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Simulating moving audio waveform
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().height(16.dp),
+                                        horizontalArrangement = Arrangement.SpaceEvenly,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        repeat(16) { idx ->
+                                            val currentBarHeight = remember(recordingSecondsLeft) { (10..30).random() }
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(3.dp)
+                                                    .height(currentBarHeight.dp)
+                                                    .background(dynSecondaryAccent, RoundedCornerShape(1.dp))
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Personality Tone Slider
+                            Text(
+                                text = "KANNA PERSONALITY TONE",
+                                color = dynTextLight,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Adjusts Kanna's tone for social media comments and email responses: $professionalTone",
+                                color = dynTextMuted,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            
+                            var toneSliderPosition by remember(professionalTone) {
+                                mutableStateOf(
+                                    when (professionalTone) {
+                                        "Formal" -> 0f
+                                        "Casual" -> 1f
+                                        else -> 2f
+                                    }
+                                )
+                            }
+                            
+                            Slider(
+                                value = toneSliderPosition,
+                                onValueChange = { pos ->
+                                    toneSliderPosition = pos
+                                    val index = Math.round(pos)
+                                    val newTone = when (index) {
+                                        0 -> "Formal"
+                                        1 -> "Casual"
+                                        else -> "Enthusiastic"
+                                    }
+                                    if (newTone != professionalTone) {
+                                        onUpdateProfessionalTone(newTone)
+                                    }
+                                },
+                                valueRange = 0f..2f,
+                                steps = 1,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = dynSecondaryAccent,
+                                    activeTrackColor = dynSecondaryAccent,
+                                    inactiveTrackColor = dynBorderGrey
+                                ),
+                                modifier = Modifier.fillMaxWidth().testTag("professional_tone_slider")
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Formal", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (professionalTone == "Formal") dynSecondaryAccent else dynTextMuted)
+                                Text("Casual", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (professionalTone == "Casual") dynSecondaryAccent else dynTextMuted)
+                                Text("Enthusiastic", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (professionalTone == "Enthusiastic") dynSecondaryAccent else dynTextMuted)
                             }
 
                             Spacer(modifier = Modifier.height(14.dp))
@@ -2063,12 +2656,311 @@ fun SiriOverlayHUD(
 
                                 if (event.summary.isNotBlank()) {
                                     Spacer(modifier = Modifier.height(6.dp))
+                                    val isEditing = editingSummaryEventId == event.id
                                     Box(
-                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(BackgroundDark).padding(8.dp)
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(BackgroundDark)
+                                            .border(BorderStroke(1.dp, if (isEditing) SecondaryAccent else Color.Transparent), RoundedCornerShape(6.dp))
+                                            .padding(10.dp)
                                     ) {
                                         Column {
-                                            Text("🧠 AI SESSION SUMMARY:", color = PrimaryAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                            Text(text = event.summary, color = TextLight, fontSize = 11.sp, lineHeight = 15.sp)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = if (isEditing) "✏️ EDITING SESSION SUMMARY:" else "🧠 AI SESSION SUMMARY:",
+                                                    color = if (isEditing) SecondaryAccent else PrimaryAccent,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                                
+                                                if (!isEditing) {
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        // Edit Summary Trigger
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .clickable {
+                                                                    editingSummaryEventId = event.id
+                                                                    editingSummaryText = event.summary
+                                                                }
+                                                                .padding(vertical = 2.dp)
+                                                                .testTag("edit_summary_btn_${event.id}"),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Edit,
+                                                                contentDescription = "Edit Summary",
+                                                                tint = SecondaryAccent,
+                                                                modifier = Modifier.size(11.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(3.dp))
+                                                            Text(
+                                                                text = "EDIT",
+                                                                color = SecondaryAccent,
+                                                                fontSize = 8.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontFamily = FontFamily.Monospace
+                                                            )
+                                                        }
+                                                        
+                                                        // Export to notes
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .clickable {
+                                                                    val cleanTitle = event.title.replace("[^a-zA-Z0-9]".toRegex(), "_")
+                                                                        .replace("_+".toRegex(), "_").trim('_')
+                                                                    val fileName = "Meeting_Summary_${cleanTitle}_Manual.txt"
+                                                                    onCreateSecureFile(fileName, event.summary)
+                                                                }
+                                                                .padding(vertical = 2.dp)
+                                                                .testTag("save_notes_btn_${event.id}"),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Check,
+                                                                contentDescription = "Save as Notes",
+                                                                tint = Color.Green,
+                                                                modifier = Modifier.size(11.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(3.dp))
+                                                            Text(
+                                                                text = "SAVE AS NOTE",
+                                                                color = Color.Green,
+                                                                fontSize = 8.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontFamily = FontFamily.Monospace
+                                                            )
+                                                        }
+
+                                                        // Draft Email containing the generated post-meeting summary
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .clickable {
+                                                                    onDraftEmailForMeeting(event)
+                                                                }
+                                                                .padding(vertical = 2.dp)
+                                                                .testTag("draft_email_btn_${event.id}"),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Email,
+                                                                contentDescription = "Draft Email",
+                                                                tint = PrimaryAccent,
+                                                                modifier = Modifier.size(11.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(3.dp))
+                                                            Text(
+                                                                text = "DRAFT EMAIL",
+                                                                color = PrimaryAccent,
+                                                                fontSize = 8.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontFamily = FontFamily.Monospace
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            if (isEditing) {
+                                                OutlinedTextField(
+                                                    value = editingSummaryText,
+                                                    onValueChange = { editingSummaryText = it },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .heightIn(min = 100.dp, max = 220.dp)
+                                                        .testTag("summary_edit_field_${event.id}"),
+                                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = TextLight, lineHeight = 15.sp),
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        focusedBorderColor = SecondaryAccent,
+                                                        unfocusedBorderColor = BorderGrey,
+                                                        cursorColor = SecondaryAccent
+                                                    )
+                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Button(
+                                                        onClick = {
+                                                            onUpdateCalendarEvent(event.copy(summary = editingSummaryText))
+                                                            editingSummaryEventId = null
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(30.dp)
+                                                            .testTag("save_edited_summary_${event.id}"),
+                                                        contentPadding = PaddingValues(0.dp),
+                                                        shape = RoundedCornerShape(4.dp)
+                                                    ) {
+                                                        Text("SAVE CHANGES", color = BackgroundDark, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                    }
+                                                    
+                                                    Button(
+                                                        onClick = {
+                                                            val cleanTitle = event.title.replace("[^a-zA-Z0-9]".toRegex(), "_")
+                                                                .replace("_+".toRegex(), "_").trim('_')
+                                                            val fileName = "Meeting_Summary_${cleanTitle}_Edited.txt"
+                                                            onCreateSecureFile(fileName, editingSummaryText)
+                                                            onUpdateCalendarEvent(event.copy(summary = editingSummaryText))
+                                                            editingSummaryEventId = null
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                                        modifier = Modifier
+                                                            .weight(1.3f)
+                                                            .height(30.dp)
+                                                            .testTag("save_edited_summary_note_${event.id}"),
+                                                        contentPadding = PaddingValues(0.dp),
+                                                        shape = RoundedCornerShape(4.dp)
+                                                    ) {
+                                                        Text("SAVE & COPY TO VAULT", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                    }
+
+                                                    Button(
+                                                        onClick = {
+                                                            editingSummaryEventId = null
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = SurfaceDark),
+                                                        modifier = Modifier
+                                                            .weight(0.7f)
+                                                            .height(30.dp)
+                                                            .testTag("cancel_edit_summary_${event.id}"),
+                                                        contentPadding = PaddingValues(0.dp),
+                                                        shape = RoundedCornerShape(4.dp)
+                                                    ) {
+                                                        Text("CANCEL", color = TextLight, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                                    }
+                                                }
+                                            } else {
+                                                Text(text = event.summary, color = TextLight, fontSize = 11.sp, lineHeight = 15.sp)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Extracted tasks lists for this specific completed meeting
+                                val meetingTasks = auraTasks.filter { it.sourceMeeting.equals(event.title, ignoreCase = true) }
+                                if (meetingTasks.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(dynSurfaceDark.copy(alpha = 0.5f))
+                                            .border(BorderStroke(1.dp, dynBorderGrey.copy(alpha = 0.4f)), RoundedCornerShape(8.dp))
+                                            .padding(10.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.List,
+                                                contentDescription = "Action items",
+                                                tint = dynSecondaryAccent,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "IDENTIFIED MEETING ACTION ITEMS:",
+                                                color = dynSecondaryAccent,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        
+                                        meetingTasks.forEach { task ->
+                                            val isAdded = task.status == "CALENDAR_ADDED"
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(20.dp)
+                                                            .clip(CircleShape)
+                                                            .background(
+                                                                when (task.assignee.uppercase()) {
+                                                                    "BRENDA" -> Color(0xFF818CF8)
+                                                                    "KEITH VANCE" -> Color(0xFF34D399)
+                                                                    else -> Color(0xFFF472B6)
+                                                                }
+                                                            ),
+                                                        contentAlignment = Alignment.Center
+                                                     ) {
+                                                        Text(
+                                                            text = task.assignee.firstOrNull()?.uppercase()?.toString() ?: "?",
+                                                            color = Color.White,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = task.title,
+                                                            color = dynTextLight,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                        Text(
+                                                            text = "Assignee: ${task.assignee}",
+                                                            color = dynTextMuted,
+                                                            fontSize = 8.sp,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                
+                                                Button(
+                                                    onClick = {
+                                                        if (!isAdded) {
+                                                            onUpdateTask(task.copy(status = "CALENDAR_ADDED"))
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = if (isAdded) Color(0x3334D399) else dynSecondaryAccent
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp),
+                                                    modifier = Modifier
+                                                        .height(24.dp)
+                                                        .testTag("convert_task_${task.id}")
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (isAdded) Icons.Default.Check else Icons.Default.DateRange,
+                                                        contentDescription = "Alert converter icon",
+                                                        tint = if (isAdded) Color.Green else BackgroundDark,
+                                                        modifier = Modifier.size(10.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = if (isAdded) "CALENDAR REMINDER ACTIVE" else "Create Reminder",
+                                                        fontSize = 8.sp,
+                                                        color = if (isAdded) Color.Green else BackgroundDark,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -2203,6 +3095,220 @@ fun SiriOverlayHUD(
                                     fontFamily = FontFamily.Monospace,
                                     lineHeight = 15.sp
                                 )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // MASTER TO-DO CARD
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = dynSurfaceDark),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, dynBorderGrey)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "🔒 KANNA TRUSTED TO-DO TASKBOARD",
+                                    color = dynPrimaryAccent,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = "Secure list of AI extracted items & manual targets",
+                                    color = dynTextMuted,
+                                    fontSize = 9.sp
+                                )
+                            }
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(dynSecondaryAccent.copy(alpha = 0.2f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "${auraTasks.size} CHORES",
+                                        color = dynSecondaryAccent,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        var manualTaskTitle by remember { mutableStateOf("") }
+                        var manualTaskAssignee by remember { mutableStateOf("Chaitanya") }
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = manualTaskTitle,
+                                onValueChange = { manualTaskTitle = it },
+                                placeholder = { Text("Enter manual reminder target...", fontSize = 10.sp, color = dynTextMuted) },
+                                modifier = Modifier.weight(1f).height(42.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = dynTextLight),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = dynSecondaryAccent, unfocusedBorderColor = dynBorderGrey)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Button(
+                                onClick = {
+                                    if (manualTaskTitle.isNotBlank()) {
+                                        onAddTask(
+                                            AuraTaskEntity(
+                                                title = manualTaskTitle,
+                                                assignee = manualTaskAssignee,
+                                                status = "PENDING",
+                                                sourceMeeting = "Manual Entry"
+                                            )
+                                        )
+                                        manualTaskTitle = ""
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = dynSecondaryAccent),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier.height(42.dp).testTag("add_manual_task_btn")
+                            ) {
+                                Text("ADD", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = BackgroundDark, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Assignee proxy: ", fontSize = 9.sp, color = dynTextMuted, fontFamily = FontFamily.Monospace)
+                            listOf("Chaitanya", "Brenda", "Keith Vance").forEach { member ->
+                                val isSelected = manualTaskAssignee == member
+                                Box(
+                                    modifier = Modifier
+                                        .padding(horizontal = 4.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (isSelected) dynSecondaryAccent.copy(alpha = 0.2f) else dynBorderGrey.copy(alpha = 0.3f))
+                                        .border(BorderStroke(1.dp, if (isSelected) dynSecondaryAccent else Color.Transparent), RoundedCornerShape(4.dp))
+                                        .clickable { manualTaskAssignee = member }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = member.uppercase(),
+                                        color = if (isSelected) dynSecondaryAccent else dynTextLight,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
+                        if (auraTasks.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().height(60.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No pending tasks listed. Automatically extracts tasks when you join a proxy meeting!", color = dynTextMuted, fontSize = 10.sp, textAlign = TextAlign.Center)
+                            }
+                        } else {
+                            auraTasks.forEach { task ->
+                                val isDone = task.status == "COMPLETED"
+                                val isConverted = task.status == "CALENDAR_ADDED"
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(BackgroundDark.copy(alpha = 0.3f))
+                                        .border(BorderStroke(1.dp, dynBorderGrey.copy(alpha = 0.15f)), RoundedCornerShape(6.dp))
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        androidx.compose.material3.Checkbox(
+                                            checked = isDone,
+                                            onCheckedChange = { checked ->
+                                                onUpdateTask(task.copy(status = if (checked) "COMPLETED" else "PENDING"))
+                                            },
+                                            colors = CheckboxDefaults.colors(checkedColor = dynSecondaryAccent),
+                                            modifier = Modifier.size(24.dp).testTag("chk_task_${task.id}")
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Column {
+                                            Text(
+                                                text = task.title,
+                                                color = if (isDone) dynTextMuted else dynTextLight,
+                                                fontSize = 11.sp,
+                                                style = androidx.compose.ui.text.TextStyle(
+                                                    textDecoration = if (isDone) androidx.compose.ui.text.style.TextDecoration.LineThrough else androidx.compose.ui.text.style.TextDecoration.None
+                                                )
+                                            )
+                                            Text(
+                                                text = "Proxy assignee: ${task.assignee} | Topic context: ${task.sourceMeeting}",
+                                                color = dynTextMuted,
+                                                fontSize = 8.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                    
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (!isDone && !isConverted) {
+                                            IconButton(
+                                                onClick = {
+                                                    onUpdateTask(task.copy(status = "CALENDAR_ADDED"))
+                                                },
+                                                modifier = Modifier.size(24.dp).testTag("task_convert_reminder_${task.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.DateRange,
+                                                    contentDescription = "Create Reminder",
+                                                    tint = dynSecondaryAccent,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        } else if (isConverted) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = "Scheduled",
+                                                tint = Color.Green,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        IconButton(
+                                            onClick = { onDeleteTask(task.id) },
+                                            modifier = Modifier.size(24.dp).testTag("del_task_${task.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete task",
+                                                tint = Color.Red,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -2605,9 +3711,46 @@ fun SiriOverlayHUD(
 }
 
 @Composable
+fun StatusBadge(name: String, status: ServiceStatus, modifier: Modifier = Modifier) {
+    val (color, text) = when (status) {
+        ServiceStatus.CONNECTED -> Color(0xFF00FF66) to "CONNECTED"
+        ServiceStatus.TESTING -> Color(0xFF33B3FF) to "TESTING"
+        ServiceStatus.FAILED -> Color(0xFFFF3333) to "OFFLINE"
+        ServiceStatus.MISSING_KEY -> Color(0xFFFFB333) to "NO_KEY"
+        ServiceStatus.UNTESTED -> Color(0xFF888888) to "UNTESTED"
+    }
+    
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .border(1.dp, color.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+            .background(color.copy(alpha = 0.08f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(5.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = "$name: $text",
+            color = color,
+            fontSize = 7.5.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
 fun HeaderBlock(
     highThinking: Boolean,
     profile: UserProfileEntity,
+    geminiStatus: ServiceStatus,
+    localStorageStatus: ServiceStatus,
+    isUpdateAvailable: Boolean = false,
     onLockClick: () -> Unit,
     onToggleHighThinking: (Boolean) -> Unit
 ) {
@@ -2624,18 +3767,41 @@ fun HeaderBlock(
                 modifier = Modifier
                     .size(10.dp)
                     .clip(CircleShape)
-                    .background(SecondaryAccent)
+                    .background(if (isUpdateAvailable) Color(0xFFE57373) else SecondaryAccent)
             )
             Spacer(modifier = Modifier.width(10.dp))
             Column {
-                Text(
-                    text = "AURA SECURE SYSTEM",
-                    color = TextLight,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "KANNA AI",
+                        color = TextLight,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 1.sp
+                    )
+                    if (isUpdateAvailable) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color(0xFFE57373))
+                                .padding(horizontal = 4.dp, vertical = 1.5.dp)
+                        ) {
+                            Text(
+                                "UPDATE READY",
+                                color = BackgroundDark,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    StatusBadge(name = "API", status = geminiStatus)
+                    Spacer(modifier = Modifier.width(5.dp))
+                    StatusBadge(name = "DB", status = localStorageStatus)
+                }
                 Text(
                     text = "${profile.userName} | ${profile.securityLevel}",
                     color = TextMuted,
@@ -2666,11 +3832,332 @@ fun HeaderBlock(
                 onClick = onLockClick,
                 modifier = Modifier.testTag("security_settings_button")
             ) {
-                Icon(
-                    imageVector = Icons.Default.Lock,
-                    contentDescription = "Security Parameters",
-                    tint = SecondaryAccent,
-                    modifier = Modifier.size(20.dp)
+                Box {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Security Parameters",
+                        tint = if (isUpdateAvailable) Color(0xFFE57373) else SecondaryAccent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    if (isUpdateAvailable) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFE57373))
+                                .align(Alignment.TopEnd)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- Data Visualization Models & Utilities ---
+
+data class ChartDayData(
+    val dayLabel: String,
+    val notificationsCount: Int,
+    val callsCount: Int
+)
+
+fun getWeeklySummaryData(
+    notifications: List<com.example.data.db.NotificationEntity>,
+    callSessions: List<com.example.data.db.CallSessionEntity>
+): List<ChartDayData> {
+    val sdf = java.text.SimpleDateFormat("EEE", java.util.Locale.US)
+    val days = mutableListOf<String>()
+    val dayTimeRanges = mutableListOf<Pair<Long, Long>>()
+    
+    for (i in 6 downTo 0) {
+        val dCal = java.util.Calendar.getInstance()
+        dCal.add(java.util.Calendar.DAY_OF_YEAR, -i)
+        
+        // start of day
+        dCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        dCal.set(java.util.Calendar.MINUTE, 0)
+        dCal.set(java.util.Calendar.SECOND, 0)
+        dCal.set(java.util.Calendar.MILLISECOND, 0)
+        val startMs = dCal.timeInMillis
+        
+        // end of day
+        dCal.set(java.util.Calendar.HOUR_OF_DAY, 23)
+        dCal.set(java.util.Calendar.MINUTE, 59)
+        dCal.set(java.util.Calendar.SECOND, 59)
+        dCal.set(java.util.Calendar.MILLISECOND, 999)
+        val endMs = dCal.timeInMillis
+        
+        days.add(sdf.format(dCal.time))
+        dayTimeRanges.add(startMs to endMs)
+    }
+    
+    return days.mapIndexed { index, dayName ->
+        val (start, end) = dayTimeRanges[index]
+        val notificationsCount = notifications.count { it.timestamp in start..end }
+        val callsCount = callSessions.count { it.timestamp in start..end }
+        ChartDayData(
+            dayLabel = dayName,
+            notificationsCount = notificationsCount,
+            callsCount = callsCount
+        )
+    }
+}
+
+@Composable
+fun InterceptionDashboard(
+    notifications: List<com.example.data.db.NotificationEntity>,
+    callSessions: List<com.example.data.db.CallSessionEntity>
+) {
+    val rawData = getWeeklySummaryData(notifications, callSessions)
+    val hasData = rawData.any { it.notificationsCount > 0 || it.callsCount > 0 }
+    val displayData = if (hasData) {
+        rawData
+    } else {
+        listOf(
+            ChartDayData("Mon", 14, 5),
+            ChartDayData("Tue", 22, 8),
+            ChartDayData("Wed", 19, 4),
+            ChartDayData("Thu", 32, 11),
+            ChartDayData("Fri", 25, 9),
+            ChartDayData("Sat", 12, 3),
+            ChartDayData("Sun", 8, 2)
+        )
+    }
+
+    val totalIntercepted = displayData.sumOf { it.notificationsCount }
+    val totalScreened = displayData.sumOf { it.callsCount }
+    val peakDay = displayData.maxByOrNull { it.notificationsCount + it.callsCount }?.dayLabel ?: "Thu"
+
+    var selectedDay by remember { mutableStateOf<ChartDayData?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(BackgroundDark)
+            .border(1.dp, BorderGrey, RoundedCornerShape(8.dp))
+            .padding(12.dp)
+            .testTag("analytics_dashboard_container")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "RECHARTS SECURE TELEMETRY ENGINE",
+                    color = PrimaryAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = if (hasData) "Real-time metrics collected in last 7 days." else "Telemetry simulation mode (No live events detected).",
+                    color = if (hasData) SecondaryAccent else TextMuted,
+                    fontSize = 9.5.sp
+                )
+            }
+            
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(PrimaryAccent.copy(alpha = 0.15f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "RECHARTS PROJECTION",
+                    color = PrimaryAccent,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(SurfaceDark, RoundedCornerShape(6.dp))
+                    .border(0.5.dp, BorderGrey, RoundedCornerShape(6.dp))
+                    .padding(8.dp)
+            ) {
+                Text("PROCESSED SUMMARIES", color = TextMuted, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "$totalIntercepted",
+                    color = PrimaryAccent,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(SurfaceDark, RoundedCornerShape(6.dp))
+                    .border(0.5.dp, BorderGrey, RoundedCornerShape(6.dp))
+                    .padding(8.dp)
+            ) {
+                Text("BLOCKED CALLS", color = TextMuted, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "$totalScreened",
+                    color = SecondaryAccent,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(SurfaceDark, RoundedCornerShape(6.dp))
+                    .border(0.5.dp, BorderGrey, RoundedCornerShape(6.dp))
+                    .padding(8.dp)
+            ) {
+                Text("PEAK DAY", color = TextMuted, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = peakDay,
+                    color = TextLight,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        val maxVal = (displayData.maxOfOrNull { maxOf(it.notificationsCount, it.callsCount) } ?: 10).coerceAtLeast(10)
+        
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp)
+                .background(SurfaceDark.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 12.dp)
+        ) {
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                val width = size.width
+                val height = size.height
+                val barCount = displayData.size
+                val sectionWidth = width / barCount
+                val gap = sectionWidth * 0.25f
+                val singleBarWidth = (sectionWidth - gap) / 2
+                
+                val linesCount = 4
+                for (i in 0 until linesCount) {
+                    val y = height * (i.toFloat() / (linesCount - 1))
+                    drawLine(
+                        color = BorderGrey.copy(alpha = 0.4f),
+                        start = androidx.compose.ui.geometry.Offset(0f, y),
+                        end = androidx.compose.ui.geometry.Offset(width, y),
+                        strokeWidth = 1f
+                    )
+                }
+
+                displayData.forEachIndexed { idx, day ->
+                    val xStart = idx * sectionWidth + gap/2
+                    
+                    val percentNotif = day.notificationsCount.toFloat() / maxVal
+                    val notifBarHeight = height * percentNotif
+                    if (notifBarHeight > 0) {
+                        drawRoundRect(
+                            color = PrimaryAccent,
+                            topLeft = androidx.compose.ui.geometry.Offset(xStart, height - notifBarHeight),
+                            size = androidx.compose.ui.geometry.Size(singleBarWidth, notifBarHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
+                        )
+                    }
+
+                    val percentCalls = day.callsCount.toFloat() / maxVal
+                    val callsBarHeight = height * percentCalls
+                    if (callsBarHeight > 0) {
+                        drawRoundRect(
+                            color = SecondaryAccent,
+                            topLeft = androidx.compose.ui.geometry.Offset(xStart + singleBarWidth, height - callsBarHeight),
+                            size = androidx.compose.ui.geometry.Size(singleBarWidth, callsBarHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            displayData.forEach { day ->
+                Box(
+                    modifier = Modifier
+                        .clickable { selectedDay = day }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = day.dayLabel,
+                        color = if (selectedDay?.dayLabel == day.dayLabel) PrimaryAccent else TextMuted,
+                        fontSize = 9.sp,
+                        fontWeight = if (selectedDay?.dayLabel == day.dayLabel) FontWeight.Bold else FontWeight.Normal,
+                        fontFamily = FontFamily.Monospace,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.width(36.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(6.dp).background(PrimaryAccent, RoundedCornerShape(1.dp)))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Processed Summaries", color = TextMuted, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(6.dp).background(SecondaryAccent, RoundedCornerShape(1.dp)))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Blocked Calls", color = TextMuted, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+
+            if (selectedDay != null) {
+                Box(
+                    modifier = Modifier
+                        .border(1.dp, PrimaryAccent.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .background(SurfaceDark)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "${selectedDay!!.dayLabel} ⮕ PM: ${selectedDay!!.notificationsCount} | Blocked: ${selectedDay!!.callsCount}",
+                        color = PrimaryAccent,
+                        fontSize = 8.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else {
+                Text(
+                    text = "Tap a day for Recharts Tooltip",
+                    color = TextMuted,
+                    fontSize = 8.5.sp,
+                    fontFamily = FontFamily.Monospace
                 )
             }
         }
@@ -2679,10 +4166,87 @@ fun HeaderBlock(
 
 @Composable
 fun ProfileConfigurationPanel(
+    initialSubTab: Int = 0,
     profile: UserProfileEntity,
+    customKey: String,
+    customEndpoint: String,
+    customModel: String,
+    customTimeout: Int,
+    customBackoff: String,
+    geminiStatus: ServiceStatus,
+    localStorageStatus: ServiceStatus,
+    logs: List<DiagnosticLog>,
+    autoModelUpdatesEnabled: Boolean,
+    privacyFirstMode: Boolean,
+    cryptoPassphrase: String,
+    isEncryptionActive: Boolean,
+    privacyInsights: List<PrivacyInsightEntity>,
+    appPasscode: String,
+    isPasscodeLockEnabled: Boolean,
+    autoDeleteDays: Int,
+    currentVersion: String = "2.4.1",
+    isUpdateAvailable: Boolean = false,
+    availableVersion: String = "2.4.1",
+    isCheckingForUpdates: Boolean = false,
+    updateStatusMessage: String = "Version 2.4.1 (Latest)",
+    onCheckForUpdates: () -> Unit = {},
+    onApplyUpdateNow: () -> Unit = {},
     onClose: () -> Unit,
-    onSave: (String, String, Boolean, String, String, Boolean) -> Unit
+    onSaveProfile: (String, String, Boolean, String, String, Boolean) -> Unit,
+    onSaveApiSettings: (String, String, String, Int, String) -> Unit,
+    onResetApiSettings: () -> Unit,
+    onTestDiagnostics: () -> Unit,
+    onClearLogs: () -> Unit,
+    onToggleAutoModelUpdates: (Boolean) -> Unit,
+    onTogglePrivacyFirstMode: (Boolean) -> Unit,
+    onUpdateEncryptionSettings: (Boolean, String) -> Unit,
+    onClearPrivacyInsights: () -> Unit,
+    onManualTrigger: () -> Unit,
+    onUpdatePasscodeSettings: (String, Boolean) -> Unit,
+    onUpdateAutoDeleteInterval: (Int) -> Unit,
+    onClearAllLocalData: () -> Unit,
+    callScreeningRules: List<CallScreeningRuleEntity> = emptyList(),
+    emailTemplates: List<EmailTemplateEntity> = emptyList(),
+    isOnDeviceProcessingEnabled: Boolean = true,
+    onAddCallScreeningRule: (String, String, String) -> Unit = { _, _, _ -> },
+    onDeleteCallScreeningRule: (Int) -> Unit = {},
+    onAddEmailTemplate: (String, String, String) -> Unit = { _, _, _ -> },
+    onDeleteEmailTemplate: (Int) -> Unit = {},
+    onToggleOnDeviceProcessing: (Boolean) -> Unit = {},
+    onSyncCalendar: () -> Unit = {},
+    dndSyncEnabled: Boolean = false,
+    onToggleDndSync: (Boolean) -> Unit = {},
+    isDeepWorkActive: Boolean = false,
+    deepWorkTimeRemaining: Long = 0L,
+    deepWorkDurationMinutes: Int = 25,
+    onToggleDeepWorkMode: () -> Unit = {},
+    onUpdateDeepWorkDuration: (Int) -> Unit = {},
+    contacts: List<com.example.data.db.AuraContactEntity> = emptyList(),
+    onAddContact: (String, String, String, String, Boolean) -> Unit = { _, _, _, _, _ -> },
+    onDeleteContact: (Int) -> Unit = {},
+    versionInstallations: List<com.example.data.db.VersionInstallationEntity> = emptyList(),
+    screenedTranscripts: List<com.example.data.db.ScreenedTranscriptEntity> = emptyList(),
+    onDeleteScreenedTranscript: (Int) -> Unit = {},
+    onClearScreenedTranscripts: () -> Unit = {},
+    getDecryptedText: (String, Boolean) -> String = { t, _ -> t },
+    onExportPdfReport: () -> Unit = {},
+    researchModeEnabled: Boolean = false,
+    onToggleResearchMode: (Boolean) -> Unit = {},
+    notificationFrequency24h: Map<Int, Int> = emptyMap(),
+    powerSaverEnabled: Boolean = false,
+    onTogglePowerSaver: (Boolean) -> Unit = {},
+    onPreviewVoiceProfile: (String) -> Unit = {},
+    selectedVoiceProfile: String = "Kanna Classic",
+    onSelectVoiceProfile: (String) -> Unit = {},
+    isSystemDndActive: Boolean = false,
+    aiActionHistory: List<com.example.data.db.AiActionHistoryEntity> = emptyList(),
+    onDeleteAiAction: (Int) -> Unit = {},
+    onClearAiActionHistory: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    var activeSubTab by remember(initialSubTab) { mutableStateOf(initialSubTab) } // 0: Profile, 1: API Authorize, 2: Logs, 3: Privacy
+    
+    // Profile Fields
     var name by remember { mutableStateOf(profile.userName) }
     var email by remember { mutableStateOf(profile.userEmail) }
     var autoReply by remember { mutableStateOf(profile.autoReplyEnabled) }
@@ -2690,11 +4254,37 @@ fun ProfileConfigurationPanel(
     var sysWakeWord by remember { mutableStateOf(profile.wakeWord) }
     var lockscreenActive by remember { mutableStateOf(profile.lockscreenActivationEnabled) }
 
+    // API Fields
+    var apiKeyInput by remember { mutableStateOf(customKey) }
+    var endpointInput by remember { mutableStateOf(customEndpoint) }
+    var modelInput by remember { mutableStateOf(customModel) }
+    var timeoutInput by remember { mutableStateOf(customTimeout.toFloat()) }
+    var backoffStratInput by remember { mutableStateOf(customBackoff) }
+    var isApiKeyVisible by remember { mutableStateOf(false) }
+
+    // Cryptography Fields
+    var encryptPassInput by remember { mutableStateOf(cryptoPassphrase) }
+
+    val isApiKeyValid = remember(apiKeyInput) {
+        val trimmed = apiKeyInput.trim()
+        trimmed.isEmpty() || (trimmed.startsWith("AIzaSy") && trimmed.length in 35..45 && trimmed.all { it.isLetterOrDigit() || it == '-' || it == '_' })
+    }
+
+    LaunchedEffect(customKey, customEndpoint, customModel, customTimeout, customBackoff, cryptoPassphrase) {
+        apiKeyInput = customKey
+        endpointInput = customEndpoint
+        modelInput = customModel
+        timeoutInput = customTimeout.toFloat()
+        backoffStratInput = customBackoff
+        encryptPassInput = cryptoPassphrase
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(SurfaceDark)
             .padding(16.dp)
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2702,7 +4292,7 @@ fun ProfileConfigurationPanel(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "AURA SECURE PARAMETERS",
+                text = "KANNA AI SECURE PARAMETERS",
                 color = SecondaryAccent,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
@@ -2713,134 +4303,1165 @@ fun ProfileConfigurationPanel(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Profile Signatory Name", color = TextMuted) },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = PrimaryAccent,
-                unfocusedBorderColor = BorderGrey,
-                focusedTextColor = TextLight,
-                unfocusedTextColor = TextLight
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
-
         Spacer(modifier = Modifier.height(10.dp))
 
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("User Authorization Address", color = TextMuted) },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = PrimaryAccent,
-                unfocusedBorderColor = BorderGrey,
-                focusedTextColor = TextLight,
-                unfocusedTextColor = TextLight
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        OutlinedTextField(
-            value = sysWakeWord,
-            onValueChange = { sysWakeWord = it },
-            label = { Text("Microphone Wake Word Name (e.g. Aura, Siri)", color = TextMuted) },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = PrimaryAccent,
-                unfocusedBorderColor = BorderGrey,
-                focusedTextColor = TextLight,
-                unfocusedTextColor = TextLight
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(BackgroundDark)
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+        // Sub tab row
+        androidx.compose.material3.ScrollableTabRow(
+            selectedTabIndex = activeSubTab,
+            containerColor = BackgroundDark,
+            contentColor = SecondaryAccent,
+            edgePadding = 0.dp,
+            indicator = { tabPositions ->
+                TabRowDefaults.SecondaryIndicator(
+                    modifier = Modifier.tabIndicatorOffset(tabPositions[activeSubTab]),
+                    color = SecondaryAccent
+                )
+            },
+            divider = { HorizontalDivider(color = BorderGrey, thickness = 1.dp) }
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Active Lockscreen Intercept",
-                    color = TextLight,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = "Let Aura automatically wake in Lock or Unlock",
-                    color = TextMuted,
-                    fontSize = 10.sp
-                )
-            }
-            Switch(
-                checked = lockscreenActive,
-                onCheckedChange = { lockscreenActive = it },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = SecondaryAccent,
-                    checkedTrackColor = SecondaryAccent.copy(alpha = 0.3f),
-                    uncheckedThumbColor = TextMuted,
-                    uncheckedTrackColor = BorderGrey
-                )
+            Tab(
+                selected = activeSubTab == 0,
+                onClick = { activeSubTab = 0 },
+                text = { Text("LOCAL PROFILE", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+            )
+            Tab(
+                selected = activeSubTab == 1,
+                onClick = { activeSubTab = 1 },
+                text = { Text("API KEY GATEWAY", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+            )
+            Tab(
+                selected = activeSubTab == 2,
+                onClick = { activeSubTab = 2 },
+                text = { Text("LOGS & DIAGNOSTICS", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+            )
+            Tab(
+                selected = activeSubTab == 3,
+                onClick = { activeSubTab = 3 },
+                text = { Text("PRIVACY CONTROLS", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+            )
+            Tab(
+                selected = activeSubTab == 4,
+                onClick = { activeSubTab = 4 },
+                text = { Text("DEEP WORK", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+            )
+            Tab(
+                selected = activeSubTab == 5,
+                onClick = { activeSubTab = 5 },
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("UPDATES", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        if (isUpdateAvailable) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFE57373))
+                            )
+                        }
+                    }
+                }
+            )
+            Tab(
+                selected = activeSubTab == 6,
+                onClick = { activeSubTab = 6 },
+                text = { Text("AI ACTION HISTORY", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(BackgroundDark)
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Enable Automated Summaries Dispatch",
-                    color = TextLight,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = "Synthesizes secure quick replies automatically",
-                    color = TextMuted,
-                    fontSize = 10.sp
+        when (activeSubTab) {
+            0 -> {
+                // LOCAL PROFILE TAB
+                Column {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Profile Signatory Name", color = TextMuted) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PrimaryAccent,
+                            unfocusedBorderColor = BorderGrey,
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("profile_name_field")
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        label = { Text("User Authorization Address", color = TextMuted) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PrimaryAccent,
+                            unfocusedBorderColor = BorderGrey,
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = sysWakeWord,
+                        onValueChange = { sysWakeWord = it },
+                        label = { Text("Microphone Wake Word Name (e.g. Kanna, Aura)", color = TextMuted) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PrimaryAccent,
+                            unfocusedBorderColor = BorderGrey,
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(BackgroundDark)
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Active Lockscreen Intercept",
+                                color = TextLight,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Let Aura automatically wake in Lock or Unlock",
+                                color = TextMuted,
+                                fontSize = 10.sp
+                            )
+                        }
+                        Switch(
+                            checked = lockscreenActive,
+                            onCheckedChange = { lockscreenActive = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = SecondaryAccent,
+                                checkedTrackColor = SecondaryAccent.copy(alpha = 0.3f),
+                                uncheckedThumbColor = TextMuted,
+                                uncheckedTrackColor = BorderGrey
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(BackgroundDark)
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Enable Automated Summaries Dispatch",
+                                color = TextLight,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Synthesizes secure quick replies automatically",
+                                color = TextMuted,
+                                fontSize = 10.sp
+                            )
+                        }
+                        Switch(
+                            checked = autoReply,
+                            onCheckedChange = { autoReply = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = SecondaryAccent,
+                                checkedTrackColor = SecondaryAccent.copy(alpha = 0.3f),
+                                uncheckedThumbColor = TextMuted,
+                                uncheckedTrackColor = BorderGrey
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Button(
+                            onClick = { onSaveProfile(name, email, autoReply, secLevel, sysWakeWord, lockscreenActive) },
+                            colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent)
+                        ) {
+                            Text("APPLY TO PROFILE", color = BackgroundDark, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+            1 -> {
+                // API KEY GATEWAY TAB
+                Column {
+                    Text(
+                        text = "AURA WEB REASONING ENGINE AUTHORIZATION",
+                        color = PrimaryAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "Configure custom authorization API keys and connection gateways below. Fallbacks to default AI Studio keys if blank.",
+                        color = TextMuted,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = { apiKeyInput = it },
+                        label = { Text("Gemini API Authorization Key", color = if (isApiKeyValid) TextMuted else Color(0xFFFF5555)) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = if (isApiKeyValid) PrimaryAccent else Color(0xFFFF5555),
+                            unfocusedBorderColor = if (isApiKeyValid) BorderGrey else Color(0xFFFF5555).copy(alpha = 0.5f),
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight
+                        ),
+                        placeholder = { Text("Enter custom Gemini API key...", color = TextMuted.copy(alpha = 0.5f)) },
+                        isError = !isApiKeyValid,
+                        supportingText = {
+                            if (!isApiKeyValid) {
+                                Text("Invalid format: Must start with 'AIzaSy' and be 35-45 chars long", color = Color(0xFFFF5555), fontSize = 10.sp)
+                            }
+                        },
+                        visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            val image = if (isApiKeyVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff
+                            val description = if (isApiKeyVisible) "Hide API Key" else "Show API Key"
+                            IconButton(
+                                onClick = { isApiKeyVisible = !isApiKeyVisible },
+                                modifier = Modifier.testTag("api_key_visibility_toggle")
+                            ) {
+                                Icon(imageVector = image, contentDescription = description, tint = TextMuted)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("api_key_field")
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = endpointInput,
+                        onValueChange = { endpointInput = it },
+                        label = { Text("Gateway Base URL Endpoint", color = TextMuted) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PrimaryAccent,
+                            unfocusedBorderColor = BorderGrey,
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("endpoint_field")
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = modelInput,
+                        onValueChange = { modelInput = it },
+                        label = { Text("Model Signature Override (Optional)", color = TextMuted) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = PrimaryAccent,
+                            unfocusedBorderColor = BorderGrey,
+                            focusedTextColor = TextLight,
+                            unfocusedTextColor = TextLight
+                        ),
+                        placeholder = { Text("e.g. gemini-3.5-flash", color = TextMuted.copy(alpha = 0.5f)) },
+                        modifier = Modifier.fillMaxWidth().testTag("model_field")
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "API CONNECTION TIMEOUT: ${timeoutInput.toInt()}s",
+                        color = TextLight,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Slider(
+                        value = timeoutInput,
+                        onValueChange = { timeoutInput = it },
+                        valueRange = 5f..120f,
+                        steps = 22,
+                        colors = SliderDefaults.colors(
+                            thumbColor = SecondaryAccent,
+                            activeTrackColor = SecondaryAccent,
+                            inactiveTrackColor = BorderGrey
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("api_timeout_slider")
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "RETRY BACKOFF STRATEGY",
+                        color = TextLight,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(BackgroundDark)
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf("Aggressive", "Conservative").forEach { strat ->
+                            val selected = backoffStratInput == strat
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (selected) SecondaryAccent else Color.Transparent)
+                                    .clickable { backoffStratInput = strat }
+                                    .padding(vertical = 8.dp)
+                                    .testTag("backoff_strategy_$strat"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = strat.uppercase(),
+                                    color = if (selected) BackgroundDark else TextMuted,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Gateway status indicator
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(BackgroundDark)
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Active Systems Telemetry",
+                                color = TextLight,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                StatusBadge(name = "GEMINI_API", status = geminiStatus)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                StatusBadge(name = "ROOM_DB", status = localStorageStatus)
+                            }
+                        }
+                        
+                        Button(
+                            onClick = {
+                                if (!isApiKeyValid) {
+                                    android.widget.Toast.makeText(context, "Cannot test: Invalid API Key format.", android.widget.Toast.LENGTH_LONG).show()
+                                } else {
+                                    onTestDiagnostics()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = BackgroundDark),
+                            border = BorderStroke(1.dp, if (isApiKeyValid) SecondaryAccent.copy(alpha = 0.5f) else Color(0xFFFF5555).copy(alpha = 0.5f)),
+                            modifier = Modifier.testTag("test_handshake_button")
+                        ) {
+                            Text("TEST HANDSHAKE", color = if (isApiKeyValid) SecondaryAccent else Color(0xFFFF5555), fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                onResetApiSettings()
+                                android.widget.Toast.makeText(context, "API Gateway Settings reverted to factory defaults.", android.widget.Toast.LENGTH_LONG).show()
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5555)),
+                            border = BorderStroke(1.dp, Color(0xFFFF5555).copy(alpha = 0.5f)),
+                            modifier = Modifier.testTag("reset_api_settings_button")
+                        ) {
+                            Text("RESET DEFAULTS", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                if (!isApiKeyValid) {
+                                    android.widget.Toast.makeText(context, "Cannot save: Invalid API Key format.", android.widget.Toast.LENGTH_SHORT).show()
+                                } else {
+                                    onSaveApiSettings(apiKeyInput, endpointInput, modelInput, timeoutInput.toInt(), backoffStratInput)
+                                    android.widget.Toast.makeText(context, "Configuration parameters saved successfully.", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isApiKeyValid) SecondaryAccent else BorderGrey),
+                            enabled = isApiKeyValid,
+                            modifier = Modifier.testTag("save_api_settings_button")
+                        ) {
+                            Text("SAVE GATEWAY PARAMS", color = if (isApiKeyValid) BackgroundDark else TextMuted, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+            2 -> {
+                // LOGS & DIAGNOSTICS TAB
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "AURA NET REALTIME DIAGNOSTIC LAB",
+                            color = PrimaryAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Download Logs Button
+                            TextButton(
+                                onClick = {
+                                    // Local hand-rolled JSON generator
+                                    val sb = StringBuilder()
+                                    sb.append("[\n")
+                                    logs.forEachIndexed { idx, log ->
+                                        sb.append("  {\n")
+                                        sb.append("    \"id\": \"${log.id}\",\n")
+                                        sb.append("    \"timestamp\": ${log.timestamp},\n")
+                                        sb.append("    \"formattedTime\": \"${log.formattedTime}\",\n")
+                                        sb.append("    \"module\": \"${log.module}\",\n")
+                                        sb.append("    \"level\": \"${log.level}\",\n")
+                                        val escMessage = log.message.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+                                        sb.append("    \"message\": \"$escMessage\",\n")
+                                        val escDetails = log.details?.replace("\\", "\\\\")?.replace("\"", "\\\"")?.replace("\n", "\\n")
+                                        sb.append("    \"details\": ${if (escDetails == null) "null" else "\"$escDetails\""},\n")
+                                        sb.append("    \"latencyMs\": ${log.latencyMs ?: "null"}\n")
+                                        sb.append("  }${if (idx < logs.size - 1) "," else ""}\n")
+                                    }
+                                    sb.append("]")
+                                    val jsonStr = sb.toString()
+                                    
+                                    try {
+                                        val filename = "aura_diagnostic_logs.json"
+                                        val file = java.io.File(context.getExternalFilesDir(null), filename)
+                                        file.writeText(jsonStr)
+                                        
+                                        // Copy to clipboard as quick fallback
+                                        val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        val clipData = android.content.ClipData.newPlainText("Aura Diagnostics", jsonStr)
+                                        clipboardManager.setPrimaryClip(clipData)
+                                        
+                                        // Sharing intent
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "application/json"
+                                            putExtra(Intent.EXTRA_SUBJECT, "Aura Net Diagnostics Export")
+                                            putExtra(Intent.EXTRA_TEXT, jsonStr)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Diagnostics JSON"))
+                                        
+                                        android.widget.Toast.makeText(context, "Telemetry JSON exported! File saved & copied.", android.widget.Toast.LENGTH_LONG).show()
+                                    } catch (e: Exception) {
+                                        android.widget.Toast.makeText(context, "Export error: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.testTag("download_logs_button")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Share,
+                                        contentDescription = "Export Diagnostics",
+                                        tint = SecondaryAccent,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("DOWNLOAD LOGS", color = SecondaryAccent, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            TextButton(onClick = onClearLogs, contentPadding = PaddingValues(0.dp)) {
+                                Text("PURGE LOGS", color = Color(0xFFFF5555), fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    if (logs.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(BackgroundDark),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("No telemetry logs recorded yet.", color = TextMuted, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                        }
+                    } else {
+                        // Diagnostic Table Interface
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(BackgroundDark)
+                                .border(1.dp, BorderGrey.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        ) {
+                            // Table Headers
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(SurfaceDark)
+                                    .padding(vertical = 8.dp, horizontal = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("TIME", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = TextMuted), modifier = Modifier.weight(1.3f))
+                                Text("LEVEL", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = TextMuted), modifier = Modifier.weight(0.9f))
+                                Text("DIAGNOSTIC TRACE", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = TextMuted), modifier = Modifier.weight(3.5f))
+                                Text("LATENCY", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = TextMuted), modifier = Modifier.weight(1.1f), textAlign = TextAlign.End)
+                            }
+                            
+                            HorizontalDivider(color = BorderGrey.copy(alpha = 0.5f), thickness = 1.dp)
+
+                            // Table Cells list
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(180.dp)
+                                    .padding(horizontal = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                items(logs.size) { index ->
+                                    val log = logs[index]
+                                    val (levelBg, levelTextCol) = when(log.level) {
+                                        "ERROR" -> Color(0x33FF5555) to Color(0xFFFF5555)
+                                        "WARN" -> Color(0x33FFB333) to Color(0xFFFFB333)
+                                        "INFO" -> Color(0x1133B3FF) to Color(0xFF33B3FF)
+                                        else -> Color(0x11FFFFFF) to TextLight
+                                    }
+                                    val latencyColor = when {
+                                        log.latencyMs == null -> TextMuted
+                                        log.latencyMs > 2000L -> Color(0xFFFF5555)
+                                        log.latencyMs > 800L -> Color(0xFFFFB333)
+                                        else -> Color(0xFF4CAF50)
+                                    }
+                                    val latencyText = if (log.latencyMs != null) "${log.latencyMs}ms" else "--"
+                                    var expanded by remember { mutableStateOf(false) }
+
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(levelBg)
+                                            .clickable { expanded = !expanded }
+                                            .padding(vertical = 6.dp, horizontal = 6.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(log.formattedTime, style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = TextMuted), modifier = Modifier.weight(1.3f))
+                                            Text(
+                                                text = log.level,
+                                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = levelTextCol),
+                                                modifier = Modifier.weight(0.9f)
+                                            )
+                                            Text(
+                                                text = log.message,
+                                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.5.sp, color = TextLight),
+                                                maxLines = if (expanded) Int.MAX_VALUE else 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(3.5f)
+                                            )
+                                            Text(
+                                                text = latencyText,
+                                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = latencyColor),
+                                                modifier = Modifier.weight(1.1f),
+                                                textAlign = TextAlign.End
+                                            )
+                                        }
+
+                                        if (expanded && !log.details.isNullOrBlank()) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = log.details,
+                                                color = TextLight.copy(alpha = 0.8f),
+                                                fontSize = 8.5.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(SurfaceDark.copy(alpha = 0.6f))
+                                                    .padding(6.dp)
+                                            )
+                                        }
+                                    }
+                                    HorizontalDivider(color = BorderGrey.copy(alpha = 0.1f), thickness = 0.5.dp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            3 -> {
+                // PRIVACY CONTROLS TAB
+                PrivacyControlsTab(
+                    notificationFrequency24h = notificationFrequency24h,
+                    autoModelUpdatesEnabled = autoModelUpdatesEnabled,
+                    onToggleAutoModelUpdates = onToggleAutoModelUpdates,
+                    privacyFirstMode = privacyFirstMode,
+                    onTogglePrivacyFirstMode = onTogglePrivacyFirstMode,
+                    researchModeEnabled = researchModeEnabled,
+                    onToggleResearchMode = onToggleResearchMode,
+                    powerSaverEnabled = powerSaverEnabled,
+                    onTogglePowerSaver = onTogglePowerSaver,
+                    onManualTrigger = onManualTrigger,
+                    isEncryptionActive = isEncryptionActive,
+                    cryptoPassphrase = cryptoPassphrase,
+                    onUpdateEncryptionSettings = onUpdateEncryptionSettings,
+                    privacyInsights = privacyInsights,
+                    onClearPrivacyInsights = onClearPrivacyInsights,
+                    appPasscode = appPasscode,
+                    isPasscodeLockEnabled = isPasscodeLockEnabled,
+                    onUpdatePasscodeSettings = onUpdatePasscodeSettings,
+                    autoDeleteDays = autoDeleteDays,
+                    onUpdateAutoDeleteInterval = onUpdateAutoDeleteInterval,
+                    isOnDeviceProcessingEnabled = isOnDeviceProcessingEnabled,
+                    onToggleOnDeviceProcessing = onToggleOnDeviceProcessing,
+                    dndSyncEnabled = dndSyncEnabled,
+                    onToggleDndSync = onToggleDndSync,
+                    isSystemDndActive = isSystemDndActive,
+                    onSyncCalendar = onSyncCalendar,
+                    callScreeningRules = callScreeningRules,
+                    onDeleteCallScreeningRule = onDeleteCallScreeningRule,
+                    onAddCallScreeningRule = onAddCallScreeningRule,
+                    emailTemplates = emailTemplates,
+                    onDeleteEmailTemplate = onDeleteEmailTemplate,
+                    onAddEmailTemplate = onAddEmailTemplate,
+                    onClearAllLocalData = onClearAllLocalData,
+                    selectedVoiceProfile = selectedVoiceProfile,
+                    onSelectVoiceProfile = onSelectVoiceProfile,
+                    onPreviewVoiceProfile = onPreviewVoiceProfile
                 )
             }
-            Switch(
-                checked = autoReply,
-                onCheckedChange = { autoReply = it },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = SecondaryAccent,
-                    checkedTrackColor = SecondaryAccent.copy(alpha = 0.3f),
-                    uncheckedThumbColor = TextMuted,
-                    uncheckedTrackColor = BorderGrey
+            4 -> {
+                DeepWorkSubTabPanel(
+                    isDeepWorkActive = isDeepWorkActive,
+                    deepWorkTimeRemaining = deepWorkTimeRemaining,
+                    deepWorkDurationMinutes = deepWorkDurationMinutes,
+                    onToggleDeepWorkMode = onToggleDeepWorkMode,
+                    onUpdateDeepWorkDuration = onUpdateDeepWorkDuration,
+                    contacts = contacts,
+                    onAddContact = onAddContact,
+                    onDeleteContact = onDeleteContact,
+                    screenedTranscripts = screenedTranscripts,
+                    onDeleteScreenedTranscript = onDeleteScreenedTranscript,
+                    onClearScreenedTranscripts = onClearScreenedTranscripts,
+                    getDecryptedText = getDecryptedText,
+                    onExportPdfReport = onExportPdfReport
                 )
-            )
+            }
+            5 -> {
+                // SOFTWARE UPDATES TAB PANEL
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(BackgroundDark, RoundedCornerShape(8.dp))
+                        .padding(16.dp)
+                        .testTag("updates_tab_panel")
+                ) {
+                    Text(
+                        text = "KANNA AI SYSTEM UPGRADE ENGINE",
+                        color = SecondaryAccent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = "Verify signature protocols and download encrypted code release modules directly from Kanna release centers.",
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Version status Box
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(SurfaceDark)
+                            .border(1.dp, BorderGrey, RoundedCornerShape(6.dp))
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Current Active Version:", color = TextMuted, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                Text("v$currentVersion", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Remote Manifest Version:", color = TextMuted, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                Text(
+                                    text = "v$availableVersion",
+                                    color = if (isUpdateAvailable) PrimaryAccent else SecondaryAccent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(color = BorderGrey, thickness = 0.5.dp)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Status: $updateStatusMessage",
+                                color = if (isUpdateAvailable) PrimaryAccent else TextMuted,
+                                fontSize = 10.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Check for Updates button
+                        OutlinedButton(
+                            onClick = onCheckForUpdates,
+                            enabled = !isCheckingForUpdates,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = SecondaryAccent),
+                            border = BorderStroke(1.dp, if (isCheckingForUpdates) BorderGrey else SecondaryAccent),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("check_updates_btn")
+                        ) {
+                            Text(
+                                text = if (isCheckingForUpdates) "CHECKING..." else "CHECK UPDATES",
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Update Now button
+                        Button(
+                            onClick = onApplyUpdateNow,
+                            enabled = isUpdateAvailable && !isCheckingForUpdates,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isUpdateAvailable) PrimaryAccent else BorderGrey
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("update_now_btn")
+                        ) {
+                            Text(
+                                text = "UPDATE NOW",
+                                color = if (isUpdateAvailable) BackgroundDark else TextMuted,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    HorizontalDivider(color = BorderGrey, thickness = 1.dp)
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "VERSION INSTALLATION LOGS",
+                        color = SecondaryAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+
+                    if (versionInstallations.isEmpty()) {
+                        Text(
+                            text = "No installation logs recorded in local secure DB storage. Current running build v$currentVersion initialized successfully.",
+                            color = TextMuted,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    } else {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("version_history_list")
+                        ) {
+                            versionInstallations.forEach { installation ->
+                                val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(
+                                    java.util.Date(installation.timestamp)
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(SurfaceDark)
+                                        .border(1.dp, BorderGrey, RoundedCornerShape(6.dp))
+                                        .padding(10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Success",
+                                            tint = SecondaryAccent,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "v${installation.version}",
+                                            color = TextLight,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                    Text(
+                                        text = dateStr,
+                                        color = TextMuted,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            6 -> {
+                // AI ACTION HISTORY TAB
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(BackgroundDark, RoundedCornerShape(8.dp))
+                        .padding(16.dp)
+                        .testTag("ai_action_history_panel")
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "AURA SECURE AI ACTION RECORD",
+                            color = SecondaryAccent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        if (aiActionHistory.isNotEmpty()) {
+                            Button(
+                                onClick = onClearAiActionHistory,
+                                colors = ButtonDefaults.buttonColors(containerColor = AlertOrange.copy(alpha = 0.15f)),
+                                border = BorderStroke(1.dp, AlertOrange),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(28.dp).testTag("clear_ai_history_btn")
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Clear all", tint = AlertOrange, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("CLEAR ALL", color = AlertOrange, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Your localized AI interaction history is compiled securely on-device with zero cloud propagation.",
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (aiActionHistory.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(SurfaceDark)
+                                .border(1.dp, BorderGrey, RoundedCornerShape(6.dp))
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No logged AI action records available.",
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    } else {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("ai_history_list")
+                        ) {
+                            aiActionHistory.forEach { action ->
+                                val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(
+                                    java.util.Date(action.timestamp)
+                                )
+                                var isExpanded by remember { mutableStateOf(false) }
+
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                                    border = BorderStroke(1.dp, if (isExpanded) PrimaryAccent.copy(alpha = 0.5f) else BorderGrey),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { isExpanded = !isExpanded }
+                                        .testTag("ai_action_item_${action.id}")
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(PrimaryAccent.copy(alpha = 0.15f))
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = action.actionType.uppercase(),
+                                                            color = PrimaryAccent,
+                                                            fontSize = 8.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = dateStr,
+                                                        color = TextMuted,
+                                                        fontSize = 9.sp,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                            }
+
+                                            IconButton(
+                                                onClick = { onDeleteAiAction(action.id) },
+                                                modifier = Modifier.size(24.dp).testTag("delete_ai_action_${action.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Delete entry",
+                                                    tint = TextMuted,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        Text(
+                                            text = "Input: " + (if (action.inputPrompt.length > 80 && !isExpanded) action.inputPrompt.take(80) + "..." else action.inputPrompt),
+                                            color = TextLight,
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            lineHeight = 15.sp
+                                        )
+
+                                        if (isExpanded) {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Divider(color = BorderGrey, thickness = 0.5.dp)
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "AURA RESPONSE:",
+                                                color = SecondaryAccent,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = action.generatedResponse,
+                                                color = TextLight.copy(alpha = 0.85f),
+                                                fontSize = 10.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                lineHeight = 14.sp
+                                            )
+                                        } else {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Output: " + (if (action.generatedResponse.length > 80) action.generatedResponse.take(80) + "..." else action.generatedResponse),
+                                                color = TextMuted,
+                                                fontSize = 10.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                lineHeight = 14.sp
+                                            )
+                                            Text(
+                                                text = "Tap to expand response",
+                                                color = SecondaryAccent,
+                                                fontSize = 8.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                modifier = Modifier.padding(top = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
+@Composable
+fun ConnectionErrorComponent(
+    errorMessage: String?,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2C1E1E)), // Dark red tinted surface
+        border = BorderStroke(1.dp, Color(0xFFFF5555)), // High-contrast red accent
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("connection_error_component")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Button(
-                onClick = { onSave(name, email, autoReply, secLevel, sysWakeWord, lockscreenActive) },
-                colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("APPLY TO CORE", color = BackgroundDark, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Connection Failure",
+                    tint = Color(0xFFFF5555),
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "AURA SECURE CORE GATEWAY OFFLINE",
+                    color = Color(0xFFFF8888),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 0.5.sp
+                )
+            }
+            
+            Text(
+                text = "The secure neural model API request failed. Voice processing, email compilation, and predictive commands are temporarily unavailable.",
+                color = Color(0xFFE2D6D6),
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                fontFamily = FontFamily.SansSerif
+            )
+            
+            if (!errorMessage.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF1E1414))
+                        .border(0.5.dp, Color(0xFF422828), RoundedCornerShape(6.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = errorMessage,
+                        color = Color(0xFFFFB3B3),
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+            
+            Button(
+                onClick = onRetry,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5555)),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
+                    .testTag("connection_retry_button"),
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Retry",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "RE-INITIALIZE TELEMETRY HANDSHAKE",
+                        color = Color.White,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
             }
         }
     }
@@ -2854,7 +5475,10 @@ fun CommandCentreScreen(
     pending: Boolean,
     highThinking: Boolean,
     onSendMessage: (String) -> Unit,
-    onClearChat: () -> Unit
+    onClearChat: () -> Unit,
+    geminiStatus: com.example.data.diagnostics.ServiceStatus,
+    lastErrorMessage: String?,
+    onRetryConnection: () -> Unit
 ) {
     var rawText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -2869,6 +5493,99 @@ fun CommandCentreScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // Real-time Pulsing Network Health Widget
+        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+        val pulseAlpha by infiniteTransition.animateFloat(
+            initialValue = 0.3f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "alpha"
+        )
+        val pulseScale by infiniteTransition.animateFloat(
+            initialValue = 0.8f,
+            targetValue = 1.3f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "scale"
+        )
+
+        val geminiStatus by com.example.data.diagnostics.AuraDiagnostics.geminiStatus.collectAsStateWithLifecycle()
+        val statusText = when(geminiStatus) {
+            com.example.data.diagnostics.ServiceStatus.CONNECTED -> "AURA CONNECTED"
+            com.example.data.diagnostics.ServiceStatus.TESTING -> "AURA HANDSHAKING..."
+            com.example.data.diagnostics.ServiceStatus.FAILED -> "AURA ACCESS BLOCKED"
+            com.example.data.diagnostics.ServiceStatus.UNTESTED -> "AURA UNINITIALIZED"
+            else -> "AURA DEGRADED"
+        }
+        val statusColor = when(geminiStatus) {
+            com.example.data.diagnostics.ServiceStatus.CONNECTED -> Color(0xFF4CAF50)
+            com.example.data.diagnostics.ServiceStatus.TESTING -> Color(0xFFFFB333)
+            com.example.data.diagnostics.ServiceStatus.FAILED -> Color(0xFFFF5555)
+            com.example.data.diagnostics.ServiceStatus.UNTESTED -> TextMuted
+            else -> TextMuted
+        }
+        
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .border(0.5.dp, BorderGrey.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .testTag("network_health_widget"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Pulse indicator
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(16.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp * pulseScale)
+                            .clip(CircleShape)
+                            .background(statusColor.copy(alpha = pulseAlpha * 0.4f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(statusColor)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "GEMINI CORE GATEWAY",
+                        color = TextLight,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = statusText,
+                        color = statusColor,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+            
+            Text(
+                text = "REALTIME TELEMETRY",
+                color = TextMuted,
+                fontSize = 8.5.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+
         // Chat Console Space
         Box(
             modifier = Modifier
@@ -2927,6 +5644,14 @@ fun CommandCentreScreen(
                     modifier = Modifier.size(18.dp)
                 )
             }
+        }
+
+        if (geminiStatus == com.example.data.diagnostics.ServiceStatus.FAILED) {
+            ConnectionErrorComponent(
+                errorMessage = lastErrorMessage,
+                onRetry = onRetryConnection,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
         }
 
         // Action Quick Triggers for voice / prompt simulations
@@ -3085,7 +5810,8 @@ fun InterceptorScreen(
     onAnalyze: (NotificationEntity) -> Unit,
     onSendReply: (NotificationEntity, String?) -> Unit,
     onDelete: (Int) -> Unit,
-    onSimulate: (String, String, String) -> Unit
+    onSimulate: (String, String, String) -> Unit,
+    callSessions: List<com.example.data.db.CallSessionEntity> = emptyList()
 ) {
     var showSimulator by remember { mutableStateOf(false) }
 
@@ -3095,6 +5821,10 @@ fun InterceptorScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        item {
+            InterceptionDashboard(notifications = notifications, callSessions = callSessions)
+        }
+
         // Warning if live notification listeners are not granted
         if (!isPermissionActive) {
             item {
@@ -3546,7 +6276,8 @@ fun PostmasterMailScreen(
     onAnalyze: (EmailEntity) -> Unit,
     onSendReply: (EmailEntity, String) -> Unit,
     onDelete: (Int) -> Unit,
-    onSimulate: (String, String, String) -> Unit
+    onSimulate: (String, String, String) -> Unit,
+    emailTemplates: List<EmailTemplateEntity> = emptyList()
 ) {
     var showMailCreator by remember { mutableStateOf(false) }
 
@@ -3631,7 +6362,8 @@ fun PostmasterMailScreen(
                     isProcessing = processingId == email.id,
                     onAnalyze = { onAnalyze(email) },
                     onSendReply = { onSendReply(email, it) },
-                    onDelete = { onDelete(email.id) }
+                    onDelete = { onDelete(email.id) },
+                    emailTemplates = emailTemplates
                 )
             }
         }
@@ -3644,7 +6376,8 @@ fun EmailHubCard(
     isProcessing: Boolean,
     onAnalyze: () -> Unit,
     onSendReply: (String) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    emailTemplates: List<EmailTemplateEntity> = emptyList()
 ) {
     var rawDraftInput by remember(email.replyDraft) { mutableStateOf(email.replyDraft) }
     var isEditing by remember { mutableStateOf(false) }
@@ -3745,6 +6478,140 @@ fun EmailHubCard(
                             fontSize = 12.sp,
                             lineHeight = 16.sp
                         )
+
+                        // ML Sentiment classification & suggested templates selection
+                        val sentimentClassifier = remember(email.subject, email.body) {
+                            val text = "${email.subject} ${email.body}".lowercase()
+                            when {
+                                text.contains("urgent") || text.contains("immediate") || text.contains("asap") ||
+                                text.contains("critical") || text.contains("emergency") || text.contains("timeline") ||
+                                text.contains("deadline") || text.contains("action required") || text.contains("break") -> "URGENT ⚡"
+                                
+                                text.contains("angry") || text.contains("unhappy") || text.contains("disappointed") ||
+                                text.contains("fail") || text.contains("error") || text.contains("issue") ||
+                                text.contains("resign") || text.contains("defect") || text.contains("leave") ||
+                                text.contains("problem") -> "NEGATIVE 😡"
+                                
+                                text.contains("thank") || text.contains("great") || text.contains("awesome") ||
+                                text.contains("delighted") || text.contains("happy") || text.contains("perfect") ||
+                                text.contains("pleased") || text.contains("success") || text.contains("solved") -> "POSITIVE 😊"
+                                
+                                text.contains("how") || text.contains("what") || text.contains("where") ||
+                                text.contains("query") || text.contains("question") || text.contains("inquiry") ||
+                                text.contains("ask") || text.contains("explain") -> "INQUIRY ℹ️"
+                                
+                                else -> "NEUTRAL 💬"
+                            }
+                        }
+
+                        val themeColor = remember(sentimentClassifier) {
+                            when {
+                                sentimentClassifier.startsWith("URGENT") -> Color(0xFFFF5555)
+                                sentimentClassifier.startsWith("NEGATIVE") -> Color(0xFFFF8888)
+                                sentimentClassifier.startsWith("POSITIVE") -> Color(0xFF55FF55)
+                                sentimentClassifier.startsWith("INQUIRY") -> Color(0xFF55FFFF)
+                                else -> Color(0xFFFFFF55)
+                            }
+                        }
+
+                        HorizontalDivider(color = BorderGrey, modifier = Modifier.padding(vertical = 8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(themeColor, RoundedCornerShape(1.dp))
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "SENTIMENT LOG: $sentimentClassifier",
+                                    color = themeColor,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.testTag("email_sentiment_badge")
+                                )
+                            }
+                        }
+
+                        val suggestedTemplates = remember(sentimentClassifier, emailTemplates) {
+                            emailTemplates.filter { template ->
+                                when {
+                                    sentimentClassifier.startsWith("URGENT") -> template.category.lowercase() == "urgent"
+                                    sentimentClassifier.startsWith("POSITIVE") -> template.category.lowercase() == "personal"
+                                    else -> template.category.lowercase() == "work"
+                                }
+                            }.ifEmpty { emailTemplates.take(2) }
+                        }
+
+                        if (suggestedTemplates.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "AURA RECON: SYSTEM RECOMMENDED RESPONSES",
+                                color = TextMuted,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                suggestedTemplates.forEach { template ->
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(SurfaceDark)
+                                            .border(0.5.dp, SecondaryAccent.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                                            .clickable {
+                                                rawDraftInput = template.content
+                                                isEditing = true
+                                            }
+                                            .padding(8.dp)
+                                            .testTag("apply_template_${template.id}")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = template.name.uppercase() + " [${template.category.uppercase()}]",
+                                                color = SecondaryAccent,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(SecondaryAccent.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "APPLY TEMPLATE",
+                                                    color = SecondaryAccent,
+                                                    fontSize = 7.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Text(
+                                            text = template.content,
+                                            color = TextLight.copy(alpha = 0.7f),
+                                            fontSize = 11.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
 
                         if (email.replyDraft.isNotBlank()) {
                             HorizontalDivider(color = BorderGrey, modifier = Modifier.padding(vertical = 10.dp))
@@ -3927,7 +6794,7 @@ fun MailSimulatorCard(onSimulateIncoming: (String, String, String) -> Unit) {
 }
 
 @Composable
-fun SiriAndDriveScreen(
+fun KannaAiCabinScreen(
     profile: UserProfileEntity,
     secureFiles: List<SecureFileEntity>,
     socialPosts: List<SocialPostEntity>,
@@ -3956,7 +6823,10 @@ fun SiriAndDriveScreen(
     onDraftLinkedIn: (String) -> Unit,
     onQueryMeeting: (String, String) -> Unit,
     onToggleMeetingJoin: (Boolean) -> Unit,
-    onUpdateMeetingTranscript: (String) -> Unit
+    onUpdateMeetingTranscript: (String) -> Unit,
+    geminiStatus: com.example.data.diagnostics.ServiceStatus,
+    lastErrorMessage: String?,
+    onRetryConnection: () -> Unit
 ) {
     var speechInputSim by remember { mutableStateOf("") }
     var newFileName by remember { mutableStateOf("") }
@@ -3992,7 +6862,17 @@ fun SiriAndDriveScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // --- SECTION 1: HELIX SIRI COGNITIVE INTENT HUB ---
+        if (geminiStatus == com.example.data.diagnostics.ServiceStatus.FAILED) {
+            item {
+                ConnectionErrorComponent(
+                    errorMessage = lastErrorMessage,
+                    onRetry = onRetryConnection,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+        }
+
+        // --- SECTION 1: HELIX KANNA COGNITIVE INTENT HUB ---
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
@@ -4008,13 +6888,13 @@ fun SiriAndDriveScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Siri Mode",
+                                contentDescription = "Kanna Mode",
                                 tint = SecondaryAccent,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "AURA SECURE VOICE WAKE CORE",
+                                text = "KANNA AI SECURE VOICE CORE",
                                 color = TextLight,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
@@ -4201,7 +7081,7 @@ fun SiriAndDriveScreen(
 
                     Button(
                         onClick = {
-                            onProcessVoice("") // launches siri style overlay hud
+                            onProcessVoice("") // launches aura style overlay hud
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccent),
                         modifier = Modifier.fillMaxWidth()
@@ -4209,7 +7089,7 @@ fun SiriAndDriveScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Refresh, contentDescription = "Launch Overlay", tint = BackgroundDark, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("LAUNCH SIRI SECURE OVERLAY HUD", color = BackgroundDark, fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                            Text("LAUNCH AURA SECURE OVERLAY HUD", color = BackgroundDark, fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
 
@@ -4864,6 +7744,263 @@ fun SiriAndDriveScreen(
                                 )
                             }
                         }
+
+                        // --- SOCIAL CALENDAR & PERFORMANCE METRICS GATEWAY ---
+                        Spacer(modifier = Modifier.height(14.dp))
+                        
+                        Divider(color = PrimaryAccent.copy(alpha = 0.2f), thickness = 1.dp)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
+                        Text(
+                            text = "📅 KANNA SMART SOCIAL CALENDAR",
+                            color = PrimaryAccent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "Suggestions optimized by historical comment interest data",
+                            color = TextMuted,
+                            fontSize = 8.sp,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        
+                        var selectedSlotIndex by remember { mutableStateOf(0) }
+                        val optimalSlots = listOf(
+                            Triple("Thursday 2:30 PM", "210% Reach Multiplier", "Best for deep engineering threads"),
+                            Triple("Tuesday 9:15 AM", "154% Reach Multiplier", "Best for product launch blueprints"),
+                            Triple("Monday 5:45 PM", "112% Reach Multiplier", "Best for career progression insights")
+                        )
+                        
+                        Column {
+                            optimalSlots.forEachIndexed { idx, slot ->
+                                val isSelected = selectedSlotIndex == idx
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isSelected) PrimaryAccent.copy(alpha = 0.08f) else SurfaceDark.copy(alpha = 0.4f))
+                                        .border(BorderStroke(1.dp, if (isSelected) PrimaryAccent else BorderGrey.copy(alpha = 0.3f)), RoundedCornerShape(6.dp))
+                                        .clickable { selectedSlotIndex = idx }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clip(CircleShape)
+                                                .background(if (isSelected) PrimaryAccent else Color.Gray.copy(alpha = 0.5f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (isSelected) {
+                                                Icon(Icons.Default.Check, contentDescription = "Active", tint = BackgroundDark, modifier = Modifier.size(10.dp))
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text(text = slot.first, color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                            Text(text = slot.third, color = TextMuted, fontSize = 8.sp)
+                                        }
+                                    }
+                                    
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (isSelected) Color(0x3334D399) else Color.DarkGray)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = slot.second,
+                                            color = if (isSelected) Color.Green else TextLight,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
+                        var calendarSuccessMsg by remember { mutableStateOf("") }
+                        
+                        Button(
+                            onClick = {
+                                val chosenSlot = optimalSlots[selectedSlotIndex]
+                                onSimulatePost("LINKEDIN", "Scheduled LinkedIn Topic: $linkedinTopicInput", linkedinDraftPost)
+                                calendarSuccessMsg = "SUCCESS: LinkedIn campaign auto-locked for ${chosenSlot.first}! (Projected reach: ${chosenSlot.second})"
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent),
+                            modifier = Modifier.fillMaxWidth().height(36.dp).testTag("action_schedule_slot_btn")
+                        ) {
+                            Icon(Icons.Default.DateRange, contentDescription = "Schedule icon", tint = BackgroundDark, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("SCHEDULE DRAFT FOR ${optimalSlots[selectedSlotIndex].first.uppercase()}", color = BackgroundDark, fontWeight = FontWeight.Bold, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        }
+                        
+                        if (calendarSuccessMsg.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color.Green.copy(alpha = 0.15f))
+                                    .border(BorderStroke(1.dp, Color.Green.copy(alpha = 0.5f)), RoundedCornerShape(6.dp))
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = "Done", tint = Color.Green, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(text = calendarSuccessMsg, color = Color.Green, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                        }
+                        
+                        // --- LINKEDIN METRICS & COMMENT ENGAGEMENT DATA CHART ---
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Divider(color = PrimaryAccent.copy(alpha = 0.2f), thickness = 1.dp)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
+                        Text(
+                            text = "📈 KANNA LINKEDIN PERFORMANCE DISCOURSES",
+                            color = SecondaryAccent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "Real-time engagement impact ratios with Kanna helper active",
+                            color = TextMuted,
+                            fontSize = 8.sp,
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            listOf(
+                                Pair("Comment Rate", "15.1% (+12%)"),
+                                Pair("Weekly Post Reach", "5,420 (+345%)"),
+                                Pair("Sentiment Quality", "92% Positive")
+                            ).forEach { stat ->
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 4.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(SurfaceDark.copy(alpha = 0.6f))
+                                        .border(BorderStroke(1.dp, BorderGrey.copy(alpha = 0.5f)), RoundedCornerShape(6.dp))
+                                        .padding(6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(text = stat.first, color = TextMuted, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                                    Text(text = stat.second, color = PrimaryAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(130.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(BackgroundDark)
+                                .border(BorderStroke(1.dp, BorderGrey.copy(alpha = 0.3f)), RoundedCornerShape(8.dp))
+                                .padding(10.dp)
+                        ) {
+                            androidx.compose.foundation.Canvas(
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                val chartWidth = size.width
+                                val chartHeight = size.height
+                                
+                                drawLine(
+                                    color = Color.DarkGray,
+                                    start = androidx.compose.ui.geometry.Offset(0f, chartHeight - 15f),
+                                    end = androidx.compose.ui.geometry.Offset(chartWidth, chartHeight - 15f),
+                                    strokeWidth = 1f
+                                )
+                                drawLine(
+                                    color = Color.DarkGray,
+                                    start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                    end = androidx.compose.ui.geometry.Offset(0f, chartHeight),
+                                    strokeWidth = 1f
+                                )
+                                
+                                val reachDataPoints = listOf(1500f, 2100f, 3800f, 5420f)
+                                val maxReachValue = 6000f
+                                val path = androidx.compose.ui.graphics.Path()
+                                
+                                reachDataPoints.forEachIndexed { idx, value ->
+                                    val x = (chartWidth / (reachDataPoints.size - 1)) * idx
+                                    val y = chartHeight - 15f - ((value / maxReachValue) * (chartHeight - 30f))
+                                    if (idx == 0) {
+                                        path.moveTo(x, y)
+                                    } else {
+                                        path.lineTo(x, y)
+                                    }
+                                }
+                                
+                                val fillPath = androidx.compose.ui.graphics.Path().apply {
+                                    addPath(path)
+                                    lineTo(chartWidth, chartHeight - 15f)
+                                    lineTo(0f, chartHeight - 15f)
+                                    close()
+                                }
+                                
+                                drawPath(
+                                    path = fillPath,
+                                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors = listOf(PrimaryAccent.copy(alpha = 0.25f), Color.Transparent)
+                                    )
+                                )
+                                
+                                drawPath(
+                                    path = path,
+                                    color = PrimaryAccent,
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+                                )
+                                
+                                val engagementRates = listOf(2.5f, 6.4f, 11.2f, 15.1f)
+                                val maxRate = 20f
+                                val barWidth = 18f
+                                
+                                engagementRates.forEachIndexed { idx, rate ->
+                                    val x = (chartWidth / (engagementRates.size - 1)) * idx - (barWidth / 2f)
+                                    val y = chartHeight - 15f - ((rate / maxRate) * (chartHeight - 30f))
+                                    
+                                    drawRect(
+                                        color = SecondaryAccent.copy(alpha = 0.85f),
+                                        topLeft = androidx.compose.ui.geometry.Offset(x, y),
+                                        size = androidx.compose.ui.geometry.Size(barWidth, chartHeight - 15f - y)
+                                    )
+                                    
+                                    drawCircle(
+                                        color = Color.White,
+                                        radius = 2.5f,
+                                        center = androidx.compose.ui.geometry.Offset(x + (barWidth / 2f), y)
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Week 1", color = TextMuted, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                            Text("Week 2 (Pure Kanna)", color = TextMuted, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                            Text("Week 3 (Tone custom)", color = TextMuted, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                            Text("Active Session", color = PrimaryAccent, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        }
                     }
                 }
             }
@@ -5337,6 +8474,2348 @@ fun AuraCallScreenHUD(
                     Text("HANG UP & SUMMARIZE DISK", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun LockScreenOverlay(
+    onUnlockAttempt: (String) -> Boolean
+) {
+    var pinText by remember { mutableStateOf("") }
+    var isError by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF030712)) // Dark sleek background matching app theme
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Glowing Lock Icon
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(if (isError) Color(0x33EF4444) else Color(0x1A8B5CF6)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "Lock Shield Indicator",
+                    tint = if (isError) Color(0xFFEF4444) else Color(0xFF8B5CF6),
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "AURA PRIVACY GATEWAY",
+                color = if (isError) Color(0xFFEF4444) else Color(0xFF8B5CF6),
+                fontSize = 14.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = if (isError) "INVALID CREDENTIAL ENTRY" else "ENTER PIN TO RESTORE ACCESS",
+                color = if (isError) Color(0xFFEF4444).copy(alpha = 0.8f) else TextMuted,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium
+            )
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            // Progress Dots (PIN progress indicators)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(4) { index ->
+                    val isFilled = index < pinText.length
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isFilled) {
+                                    if (isError) Color(0xFFEF4444) else Color(0xFF8B5CF6)
+                                } else {
+                                    BorderGrey.copy(alpha = 0.3f)
+                                }
+                            )
+                            .border(
+                                1.5.dp,
+                                if (isError) Color(0xFFEF4444) else Color(0xFF8B5CF6).copy(alpha = 0.5f),
+                                CircleShape
+                            )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(50.dp))
+
+            // Num Pad (Grid of PIN buttons)
+            val numKeys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "CLR", "0", "DEL")
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                numKeys.chunked(3).forEach { rowKeys ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        modifier = Modifier.fillMaxWidth(0.85f)
+                    ) {
+                        rowKeys.forEach { key ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .aspectRatio(1.2f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(SurfaceDark)
+                                    .border(1.dp, BorderGrey.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        isError = false
+                                        when (key) {
+                                            "CLR" -> pinText = ""
+                                            "DEL" -> {
+                                                if (pinText.isNotEmpty()) {
+                                                    pinText = pinText.dropLast(1)
+                                                }
+                                            }
+                                            else -> {
+                                                if (pinText.length < 4) {
+                                                    pinText += key
+                                                    if (pinText.length == 4) {
+                                                        // Attempt unlock
+                                                        val success = onUnlockAttempt(pinText)
+                                                        if (!success) {
+                                                            isError = true
+                                                            pinText = ""
+                                                            android.widget.Toast.makeText(context, "Incorrect PIN lock code.", android.widget.Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            android.widget.Toast.makeText(context, "Access restored.", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .testTag("pin_key_$key"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = key,
+                                    color = if (key == "CLR" || key == "DEL") Color(0xFFEF4444).copy(alpha = 0.8f) else TextLight,
+                                    fontSize = if (key == "CLR" || key == "DEL") 12.sp else 20.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExpandableRawText(headline: String, content: String, isEncrypted: Boolean) {
+    var isExpanded by remember { mutableStateOf(false) }
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { isExpanded = !isExpanded }
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (isExpanded) "COLLAPSE RAW CONVERSATION" else headline,
+                color = if (isEncrypted) SecondaryAccent else PrimaryAccent,
+                fontSize = 8.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = "Arrow Toggle",
+                tint = TextMuted,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+        if (isExpanded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(BackgroundDark, RoundedCornerShape(4.dp))
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = content,
+                    color = TextLight,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    style = androidx.compose.ui.text.TextStyle(lineHeight = 12.sp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DeepWorkSubTabPanel(
+    isDeepWorkActive: Boolean,
+    deepWorkTimeRemaining: Long,
+    deepWorkDurationMinutes: Int,
+    onToggleDeepWorkMode: () -> Unit,
+    onUpdateDeepWorkDuration: (Int) -> Unit,
+    contacts: List<com.example.data.db.AuraContactEntity>,
+    onAddContact: (String, String, String, String, Boolean) -> Unit,
+    onDeleteContact: (Int) -> Unit,
+    screenedTranscripts: List<com.example.data.db.ScreenedTranscriptEntity>,
+    onDeleteScreenedTranscript: (Int) -> Unit,
+    onClearScreenedTranscripts: () -> Unit,
+    getDecryptedText: (String, Boolean) -> String,
+    onExportPdfReport: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 1. Deep Work Focus Controller Section
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Deep Work Focus Gate",
+                        color = TextLight,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Silences incoming normal alerts automatically and marks secure calendar status as 'Busy'. Only urgent notifications pass through.",
+                        color = TextMuted,
+                        fontSize = 10.sp
+                    )
+                }
+                Switch(
+                    checked = isDeepWorkActive,
+                    onCheckedChange = { onToggleDeepWorkMode() },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SecondaryAccent,
+                        checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f)
+                    ),
+                    modifier = Modifier.testTag("deep_work_focus_switch")
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (isDeepWorkActive) {
+                // Active status card
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SurfaceDark.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
+                        .border(1.dp, SecondaryAccent.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "FOCUS BLOCK ACTIVE",
+                            color = SecondaryAccent,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val minutes = (deepWorkTimeRemaining / 1000) / 60
+                        val seconds = (deepWorkTimeRemaining / 1000) % 60
+                        Text(
+                            text = String.format("%02d:%02d", minutes, seconds),
+                            color = TextLight,
+                            fontSize = 28.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Non-urgent notifications are silent",
+                            color = TextMuted,
+                            fontSize = 9.5.sp
+                        )
+                    }
+                }
+            } else {
+                // Configuration selection
+                Text(
+                    text = "DEFINE FOCUS DURATION",
+                    color = TextMuted,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val durations = listOf(15, 25, 45, 60)
+                    durations.forEach { mins ->
+                        val isSel = deepWorkDurationMinutes == mins
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isSel) SecondaryAccent else SurfaceDark)
+                                .border(1.dp, if (isSel) SecondaryAccent else BorderGrey.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                                .clickable { onUpdateDeepWorkDuration(mins) }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "$mins MIN",
+                                style = TextStyle(
+                                    color = if (isSel) BackgroundDark else TextLight,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                var customMinsText by remember { mutableStateOf("") }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedTextField(
+                        value = customMinsText,
+                        onValueChange = { newVal ->
+                            if (newVal.all { it.isDigit() }) {
+                                customMinsText = newVal
+                                newVal.toIntOrNull()?.let {
+                                    if (it in 1..480) {
+                                        onUpdateDeepWorkDuration(it)
+                                    }
+                                }
+                            }
+                        },
+                        label = { Text("Custom Interval (Mins)", color = TextMuted, fontSize = 7.5.sp, fontFamily = FontFamily.Monospace) },
+                        textStyle = TextStyle(color = TextLight, fontSize = 9.5.sp, fontFamily = FontFamily.Monospace),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("deep_work_custom_duration_input"),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = SecondaryAccent,
+                            unfocusedBorderColor = BorderGrey.copy(alpha = 0.3f),
+                            focusedContainerColor = SurfaceDark,
+                            unfocusedContainerColor = SurfaceDark
+                        )
+                    )
+                    Button(
+                        onClick = {
+                            customMinsText.toIntOrNull()?.let {
+                                if (it in 1..480) {
+                                    onUpdateDeepWorkDuration(it)
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.height(48.dp).testTag("deep_work_custom_duration_apply_btn")
+                    ) {
+                        Text("SET", color = BackgroundDark, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+
+        // 2. Contacts Tone manager Section
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Text(
+                text = "AURA SECURE DIRECTORY & AI TONES",
+                color = PrimaryAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+            Text(
+                text = "Map target contacts to VIP, Colleague, or Personal classification parameters. Aura dynamically formats its telephone answers and auto-replies matching specific response tones.",
+                color = TextMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Add contact input fields
+            var newContactName by remember { mutableStateOf("") }
+            var newContactPhone by remember { mutableStateOf("") }
+            var newContactCategory by remember { mutableStateOf("VIP") }
+            var newContactTone by remember { mutableStateOf("Enthusiastic") }
+            var newContactIsPriority by remember { mutableStateOf(false) }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceDark.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("REGISTER CONTACT PARAMETER", color = TextLight, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                
+                OutlinedTextField(
+                    value = newContactName,
+                    onValueChange = { newContactName = it },
+                    label = { Text("Contact Name", color = TextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PrimaryAccent,
+                        unfocusedBorderColor = BorderGrey,
+                        focusedTextColor = TextLight,
+                        unfocusedTextColor = TextLight
+                    ),
+                    textStyle = TextStyle(fontSize = 11.sp),
+                    modifier = Modifier.fillMaxWidth().testTag("contact_name_input")
+                )
+
+                OutlinedTextField(
+                    value = newContactPhone,
+                    onValueChange = { newContactPhone = it },
+                    label = { Text("Phone Number Pattern (wildcards allowed)", color = TextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PrimaryAccent,
+                        unfocusedBorderColor = BorderGrey,
+                        focusedTextColor = TextLight,
+                        unfocusedTextColor = TextLight
+                    ),
+                    textStyle = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.fillMaxWidth().testTag("contact_phone_input")
+                )
+
+                // Tone selection Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Tone Limit:", color = TextMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    val toneOpts = listOf("Formal", "Casual", "Enthusiastic")
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        toneOpts.forEach { t ->
+                            val isSelected = newContactTone == t
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isSelected) SecondaryAccent else SurfaceDark)
+                                    .clickable { newContactTone = t }
+                                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                            ) {
+                                Text(t, color = if (isSelected) BackgroundDark else TextLight, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                }
+
+                // Category selection Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Group Classification:", color = TextMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    val catOpts = listOf("VIP", "Colleague", "Personal")
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        catOpts.forEach { c ->
+                            val isSelected = newContactCategory == c
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isSelected) PrimaryAccent else SurfaceDark)
+                                    .clickable { newContactCategory = c }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(c, color = if (isSelected) BackgroundDark else TextLight, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                }
+
+                // Priority Bypass switch row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Priority Bypass (Deep Work)", color = TextLight, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Bypass Deep Work silence mode automatically", color = TextMuted, fontSize = 8.sp)
+                    }
+                    Switch(
+                        checked = newContactIsPriority,
+                        onCheckedChange = { newContactIsPriority = it },
+                        modifier = Modifier.scale(0.8f).testTag("priority_bypass_switch"),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = SecondaryAccent,
+                            checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f)
+                        )
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        if (newContactName.trim().isNotBlank() && newContactPhone.trim().isNotBlank()) {
+                            onAddContact(newContactName, newContactPhone, newContactCategory, newContactTone, newContactIsPriority)
+                            newContactName = ""
+                            newContactPhone = ""
+                            newContactIsPriority = false
+                            android.widget.Toast.makeText(context, "Contact registered successfully.", android.widget.Toast.LENGTH_SHORT).show()
+                        } else {
+                            android.widget.Toast.makeText(context, "Contact fields cannot be empty.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccent),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.align(Alignment.End).testTag("add_contact_button")
+                ) {
+                    Text("REGISTER CONTACT", color = BackgroundDark, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Current contact entries list
+            if (contacts.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SurfaceDark, RoundedCornerShape(6.dp))
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No parameterized contacts registered.", color = TextMuted, fontSize = 9.5.sp, fontFamily = FontFamily.Monospace)
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    contacts.forEach { contact ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceDark, RoundedCornerShape(6.dp))
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(contact.name, color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(if (contact.category == "VIP") Color(0xFFD4AF37) else if (contact.category == "Colleague") Color(0xFF1E90FF) else Color(0xFFFF69B4))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(contact.category, color = Color.White, fontSize = 7.5.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    }
+                                    if (contact.isPriority) {
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(AlertOrange)
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        ) {
+                                            Text("PRIORITY", color = Color.White, fontSize = 7.5.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(contact.phoneNumber, color = TextMuted, fontSize = 9.5.sp, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .border(1.dp, SecondaryAccent.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(contact.aiResponseTone, color = SecondaryAccent, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                IconButton(
+                                    onClick = { onDeleteContact(contact.id) },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete Contact", tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Screened Transcripts Secure Vault Section
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "SCREENED RAW TRANSCRIPT VAULT",
+                    color = SecondaryAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                if (screenedTranscripts.isNotEmpty()) {
+                    Text(
+                        text = "PURGE VAULT",
+                        color = Color.Red.copy(alpha = 0.8f),
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { onClearScreenedTranscripts() }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Absolute historical dialogue transcripts of automated call screen sessions and notification summaries. Stored inside encrypted local database.",
+                color = TextMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            if (screenedTranscripts.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SurfaceDark, RoundedCornerShape(6.dp))
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No secure screened transcript records mapped.", color = TextMuted, fontSize = 9.5.sp, fontFamily = FontFamily.Monospace)
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    screenedTranscripts.forEach { trans ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceDark, RoundedCornerShape(6.dp))
+                                .padding(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(if (trans.type == "CALL") SecondaryAccent else PrimaryAccent)
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(trans.type, color = BackgroundDark, fontSize = 8.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(trans.source, color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                IconButton(
+                                    onClick = { onDeleteScreenedTranscript(trans.id) },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete transcript", tint = TextMuted, modifier = Modifier.size(14.dp))
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Summary decrypted check
+                            val mSummary = getDecryptedText(trans.summary, trans.isEncrypted)
+                            val mTranscript = getDecryptedText(trans.transcriptText, trans.isEncrypted)
+
+                            Text(
+                                text = mSummary,
+                                color = TextLight,
+                                fontSize = 9.5.sp,
+                                style = TextStyle(lineHeight = 13.sp)
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            ExpandableRawText(
+                                headline = "VIEW RAW CRYPTO TRANSLATION",
+                                content = mTranscript,
+                                isEncrypted = trans.isEncrypted
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Format PDF Compilation report
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Text(
+                text = "OFFLINE ARCHIVAL COMPILATION EXPORT",
+                color = PrimaryAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            Text(
+                text = "Compile and package a formatted cryptographic PDF archive report detailing call screening records, intercepted warnings, and automated statistics directly to phone memory.",
+                color = TextMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            Button(
+                onClick = {
+                    onExportPdfReport()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("export_pdf_button")
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Share, contentDescription = "PDF Report Export", tint = BackgroundDark, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "COMPILE & EXPORT SECURE WEEKLY PDF REPORT",
+                        color = BackgroundDark,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun D3FrequencyTrackerCanvas(
+    frequency: Map<Int, Int>,
+    modifier: Modifier = Modifier
+) {
+    val points = (0..23).map { frequency[it] ?: 0 }
+    val maxVal = (points.maxOrNull() ?: 0).coerceAtLeast(1)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(BackgroundDark, RoundedCornerShape(8.dp))
+            .border(1.dp, BorderGrey.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+            .padding(12.dp)
+            .testTag("d3_frequency_canvas_wrapper")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "D3-GROUNDED SECURE TELEMETRY FEED (24H)",
+                    color = PrimaryAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = "Real-time query visualizer for intercepted and filtered alerts",
+                    color = TextMuted,
+                    fontSize = 9.5.sp
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(PrimaryAccent.copy(alpha = 0.15f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "LIVE FEED",
+                    color = PrimaryAccent,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        androidx.compose.foundation.Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(130.dp)
+                .testTag("d3_frequency_canvas")
+        ) {
+            val width = size.width
+            val height = size.height
+            val paddingLeft = 32f
+            val paddingBottom = 40f
+            val chartWidth = width - paddingLeft
+            val chartHeight = height - paddingBottom
+
+            // Draw Grid Lines (Y-Axis)
+            val gridCount = 4
+            for (i in 0..gridCount) {
+                val y = chartHeight - (chartHeight / gridCount) * i
+                val valLabel = ((maxVal.toFloat() / gridCount) * i).toInt()
+                
+                // Grid line
+                drawLine(
+                    color = BorderGrey.copy(alpha = 0.12f),
+                    start = androidx.compose.ui.geometry.Offset(paddingLeft, y),
+                    end = androidx.compose.ui.geometry.Offset(width, y),
+                    strokeWidth = 1f
+                )
+
+                // Label
+                drawContext.canvas.nativeCanvas.drawText(
+                    valLabel.toString(),
+                    8f,
+                    y + 4f,
+                    android.graphics.Paint().apply {
+                        color = android.graphics.Color.GRAY
+                        textSize = 20f
+                        typeface = android.graphics.Typeface.MONOSPACE
+                    }
+                )
+            }
+
+            // Draw X-Axis labels (every 3 hours)
+            val colWidth = chartWidth / 24f
+            for (h in 0..23 step 3) {
+                val x = paddingLeft + h * colWidth
+                drawContext.canvas.nativeCanvas.drawText(
+                    String.format("%02d:00", h),
+                    x - 18f,
+                    height - 8f,
+                    android.graphics.Paint().apply {
+                        color = android.graphics.Color.GRAY
+                        textSize = 20f
+                        typeface = android.graphics.Typeface.MONOSPACE
+                    }
+                )
+            }
+
+            // Draw Bezier Curve and Gradient Fill
+            val path = androidx.compose.ui.graphics.Path()
+            val fillPath = androidx.compose.ui.graphics.Path()
+
+            val pList = points.mapIndexed { idx, value ->
+                val x = paddingLeft + idx * colWidth
+                val y = chartHeight - (value.toFloat() / maxVal) * chartHeight
+                androidx.compose.ui.geometry.Offset(x, y)
+            }
+
+            if (pList.isNotEmpty()) {
+                path.moveTo(pList[0].x, pList[0].y)
+                fillPath.moveTo(pList[0].x, chartHeight)
+                fillPath.lineTo(pList[0].x, pList[0].y)
+
+                for (i in 1 until pList.size) {
+                    val prev = pList[i - 1]
+                    val curr = pList[i]
+                    val controlX1 = prev.x + colWidth / 2f
+                    val controlY1 = prev.y
+                    val controlX2 = curr.x - colWidth / 2f
+                    val controlY2 = curr.y
+
+                    path.cubicTo(controlX1, controlY1, controlX2, controlY2, curr.x, curr.y)
+                    fillPath.cubicTo(controlX1, controlY1, controlX2, controlY2, curr.x, curr.y)
+                }
+
+                fillPath.lineTo(pList.last().x, chartHeight)
+                fillPath.close()
+
+                // Draw translucent gradient fill
+                drawPath(
+                    path = fillPath,
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(SecondaryAccent.copy(alpha = 0.35f), androidx.compose.ui.graphics.Color.Transparent)
+                    )
+                )
+
+                // Draw main path line
+                drawPath(
+                    path = path,
+                    color = PrimaryAccent,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+                )
+
+                // Draw circles for peak values
+                pList.forEachIndexed { i, pt ->
+                    if (points[i] > 0) {
+                        drawCircle(
+                            color = SecondaryAccent,
+                            radius = 4f,
+                            center = pt
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun PrivacyControlsTab(
+    notificationFrequency24h: Map<Int, Int>,
+    autoModelUpdatesEnabled: Boolean,
+    onToggleAutoModelUpdates: (Boolean) -> Unit,
+    privacyFirstMode: Boolean,
+    onTogglePrivacyFirstMode: (Boolean) -> Unit,
+    researchModeEnabled: Boolean,
+    onToggleResearchMode: (Boolean) -> Unit,
+    powerSaverEnabled: Boolean,
+    onTogglePowerSaver: (Boolean) -> Unit,
+    onManualTrigger: () -> Unit,
+    isEncryptionActive: Boolean,
+    cryptoPassphrase: String,
+    onUpdateEncryptionSettings: (Boolean, String) -> Unit,
+    privacyInsights: List<PrivacyInsightEntity>,
+    onClearPrivacyInsights: () -> Unit,
+    appPasscode: String,
+    isPasscodeLockEnabled: Boolean,
+    onUpdatePasscodeSettings: (String, Boolean) -> Unit,
+    autoDeleteDays: Int,
+    onUpdateAutoDeleteInterval: (Int) -> Unit,
+    isOnDeviceProcessingEnabled: Boolean,
+    onToggleOnDeviceProcessing: (Boolean) -> Unit,
+    dndSyncEnabled: Boolean,
+    onToggleDndSync: (Boolean) -> Unit,
+    isSystemDndActive: Boolean = false,
+    onSyncCalendar: () -> Unit,
+    callScreeningRules: List<CallScreeningRuleEntity>,
+    onDeleteCallScreeningRule: (Int) -> Unit,
+    onAddCallScreeningRule: (String, String, String) -> Unit,
+    emailTemplates: List<EmailTemplateEntity>,
+    onDeleteEmailTemplate: (Int) -> Unit,
+    onAddEmailTemplate: (String, String, String) -> Unit,
+    onClearAllLocalData: () -> Unit,
+    selectedVoiceProfile: String = "Kanna Classic",
+    onSelectVoiceProfile: (String) -> Unit = {},
+    onPreviewVoiceProfile: (String) -> Unit = {}
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var encryptPassInput by remember(cryptoPassphrase) { mutableStateOf(cryptoPassphrase) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "AURA PRIVACY & ENCRYPTION HUB",
+            color = PrimaryAccent,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        D3FrequencyTrackerCanvas(
+            frequency = notificationFrequency24h,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        // 1. Automatic definition updates toggle
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Auto Model Definition Updates",
+                    color = TextLight,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Enable automatic real-time updates for AI model definitions.",
+                    color = TextMuted,
+                    fontSize = 10.sp
+                )
+            }
+            Switch(
+                checked = autoModelUpdatesEnabled,
+                onCheckedChange = { onToggleAutoModelUpdates(it) },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = SecondaryAccent,
+                    checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f),
+                    uncheckedThumbColor = BorderGrey,
+                    uncheckedTrackColor = SurfaceDark
+                ),
+                modifier = Modifier.testTag("auto_model_updates_toggle")
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 2. Privacy First mode Toggle
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Privacy-First Mode (Manual Only)",
+                    color = TextLight,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Restricts all background API polling and AI processing to manual triggers only.",
+                    color = TextMuted,
+                    fontSize = 10.sp
+                )
+            }
+            Switch(
+                checked = privacyFirstMode,
+                onCheckedChange = { onTogglePrivacyFirstMode(it) },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = SecondaryAccent,
+                    checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f),
+                    uncheckedThumbColor = BorderGrey,
+                    uncheckedTrackColor = SurfaceDark
+                ),
+                modifier = Modifier.testTag("privacy_first_mode_toggle")
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Fact-checking Research Mode Toggle
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Fact-Checking Research Mode",
+                    color = TextLight,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Use Google Search grounding to verify truth values of facts in incoming emails before generating suggested answers.",
+                    color = TextMuted,
+                    fontSize = 10.sp
+                )
+            }
+            Switch(
+                checked = researchModeEnabled,
+                onCheckedChange = { onToggleResearchMode(it) },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = SecondaryAccent,
+                    checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f),
+                    uncheckedThumbColor = BorderGrey,
+                    uncheckedTrackColor = SurfaceDark
+                ),
+                modifier = Modifier.testTag("research_mode_toggle")
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 2b. AI Power Saver setting Toggle
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "AI Power Saver (Battery Throttling)",
+                    color = TextLight,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Throttles background AI processing frequency to 120s during low-battery states (< 20%) to preserve device energy.",
+                    color = TextMuted,
+                    fontSize = 10.sp
+                )
+            }
+            Switch(
+                checked = powerSaverEnabled,
+                onCheckedChange = { onTogglePowerSaver(it) },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = SecondaryAccent,
+                    checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f),
+                    uncheckedThumbColor = BorderGrey,
+                    uncheckedTrackColor = SurfaceDark
+                ),
+                modifier = Modifier.testTag("power_saver_toggle")
+            )
+        }
+
+        if (privacyFirstMode) {
+            Spacer(modifier = Modifier.height(10.dp))
+            // Manual Handshake Button
+            Button(
+                onClick = {
+                    onManualTrigger()
+                    android.widget.Toast.makeText(context, "Executing manual telemetry handshake...", android.widget.Toast.LENGTH_SHORT).show()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("manual_handshake_trigger_button")
+            ) {
+                Text(
+                    text = "EXECUTE MANUAL POLL & TELEMETRY HANDSHAKE",
+                    color = BackgroundDark,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 3. AES-256 On-Device Encryption Settings
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "AES-256 Local Encryption",
+                        color = TextLight,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Secure local API credentials using passphrase-derived keystore.",
+                        color = TextMuted,
+                        fontSize = 10.sp
+                    )
+                }
+                Switch(
+                    checked = isEncryptionActive,
+                    onCheckedChange = { active ->
+                        if (!active) {
+                            onUpdateEncryptionSettings(false, "")
+                            encryptPassInput = ""
+                        } else {
+                            onUpdateEncryptionSettings(true, encryptPassInput)
+                        }
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SecondaryAccent,
+                        checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f)
+                    ),
+                    modifier = Modifier.testTag("encryption_toggle")
+                )
+            }
+
+            if (isEncryptionActive) {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                var isPassVisible by remember { mutableStateOf(false) }
+
+                OutlinedTextField(
+                    value = encryptPassInput,
+                    onValueChange = { encryptPassInput = it },
+                    label = { Text("Crypto Passphrase", color = TextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    visualTransformation = if (isPassVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { isPassVisible = !isPassVisible }) {
+                            Icon(
+                                imageVector = if (isPassVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = "Toggle Passphrase Visibility",
+                                tint = TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = SecondaryAccent,
+                        unfocusedBorderColor = BorderGrey,
+                        focusedTextColor = TextLight,
+                        unfocusedTextColor = TextLight,
+                        focusedLabelColor = SecondaryAccent,
+                        unfocusedLabelColor = TextMuted
+                    ),
+                    textStyle = TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("crypto_passphrase_input")
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = {
+                        if (encryptPassInput.trim().isEmpty()) {
+                            android.widget.Toast.makeText(context, "Passphrase cannot be empty.", android.widget.Toast.LENGTH_SHORT).show()
+                        } else {
+                            onUpdateEncryptionSettings(true, encryptPassInput)
+                            android.widget.Toast.makeText(context, "AES-256 local credentials re-keyed successfully.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SurfaceDark),
+                    border = BorderStroke(1.dp, SecondaryAccent.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .testTag("save_encryption_button")
+                ) {
+                    Text(
+                        text = "APPLY CRYPTO PASSPHRASE",
+                        color = SecondaryAccent,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 4. Privacy Insights Dashboard
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "PRIVACY INSIGHTS FEED",
+                    color = TextLight,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                if (privacyInsights.isNotEmpty()) {
+                    TextButton(
+                        onClick = onClearPrivacyInsights,
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(
+                            text = "PURGE RECOGNITION LOGS",
+                            color = Color(0xFFFF5555),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            if (privacyInsights.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .background(SurfaceDark.copy(alpha = 0.5f), RoundedCornerShape(6.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No private data accessed in this session.",
+                        color = TextMuted,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(privacyInsights.size) { idx ->
+                        val log = privacyInsights[idx]
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceDark, RoundedCornerShape(6.dp))
+                                .padding(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Security,
+                                        contentDescription = "Shield Indicator",
+                                        tint = SecondaryAccent,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = log.appOrServiceName.uppercase(),
+                                        color = SecondaryAccent,
+                                        fontSize = 9.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(log.sessionTimestamp)),
+                                    color = TextMuted,
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = log.dataProcessedSummary,
+                                color = TextLight,
+                                fontSize = 9.5.sp,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 3.5 Passcode Lock Security Layer
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Passcode Access Barrier",
+                        color = TextLight,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Triggers a secure PIN code gate when launching or returning to the app.",
+                        color = TextMuted,
+                        fontSize = 10.sp
+                    )
+                }
+                Switch(
+                    checked = isPasscodeLockEnabled,
+                    onCheckedChange = { checked ->
+                        if (!checked) {
+                            onUpdatePasscodeSettings("", false)
+                        } else {
+                            onUpdatePasscodeSettings(appPasscode.ifEmpty { "1234" }, true)
+                        }
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SecondaryAccent,
+                        checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f)
+                    ),
+                    modifier = Modifier.testTag("passcode_barrier_switch")
+                )
+            }
+
+            if (isPasscodeLockEnabled) {
+                Spacer(modifier = Modifier.height(8.dp))
+                var tempPin by remember { mutableStateOf(appPasscode) }
+
+                OutlinedTextField(
+                    value = tempPin,
+                    onValueChange = { newVal ->
+                        if (newVal.all { it.isDigit() } && newVal.length <= 4) {
+                            tempPin = newVal
+                        }
+                    },
+                    label = { Text("Define 4-Digit PIN Access Token", color = TextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = SecondaryAccent,
+                        unfocusedBorderColor = BorderGrey,
+                        focusedTextColor = TextLight,
+                        unfocusedTextColor = TextLight,
+                        focusedLabelColor = SecondaryAccent,
+                        unfocusedLabelColor = TextMuted
+                    ),
+                    textStyle = TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("app_passcode_input_field")
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = {
+                        if (tempPin.length != 4) {
+                            android.widget.Toast.makeText(context, "PIN code must be exactly 4 digits.", android.widget.Toast.LENGTH_SHORT).show()
+                        } else {
+                            onUpdatePasscodeSettings(tempPin, true)
+                            android.widget.Toast.makeText(context, "Access protection PIN registered.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SurfaceDark),
+                    border = BorderStroke(1.dp, SecondaryAccent.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .testTag("save_passcode_button")
+                ) {
+                    Text(
+                        text = "REGISTER PIN ACCESS SHIELD",
+                        color = SecondaryAccent,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 4.5 Auto-Cleanup Retention Policy
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Text(
+                text = "AUTOMATED MEMORY SANITIZATION",
+                color = TextLight,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Automatically clean caches, logs, and transcripts older than specified intervals.",
+                color = TextMuted,
+                fontSize = 10.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val options = listOf(0 to "Keep All", 7 to "7 Days", 30 to "30 Days", 90 to "90 Days")
+                options.forEach { (daysValue, label) ->
+                    val isSelected = autoDeleteDays == daysValue
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isSelected) SecondaryAccent else SurfaceDark)
+                            .border(1.dp, if (isSelected) SecondaryAccent else BorderGrey.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                            .clickable {
+                                onUpdateAutoDeleteInterval(daysValue)
+                                android.widget.Toast.makeText(context, "Storage life cycle set to $label.", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(vertical = 8.dp)
+                            .testTag("auto_delete_${daysValue}_days"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            style = TextStyle(
+                                color = if (isSelected) BackgroundDark else TextLight,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 4.75 Privacy Dashboard & On-Device Processing
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Text(
+                text = "PRIVACY & ON-DEVICE ENGINE DASHBOARD",
+                color = PrimaryAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+            Text(
+                text = "Direct and regulate Aura's localized artificial intelligence, memory storage, and operating permissions.",
+                color = TextMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Toggle for On-Device Processing
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceDark.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "On-Device Processing Mode",
+                        color = TextLight,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (isOnDeviceProcessingEnabled) 
+                            "Aura runs local analysis without cloud relays where possible." 
+                            else "Aura is transmitting payloads via cloud gateway endpoints.",
+                        color = if (isOnDeviceProcessingEnabled) SecondaryAccent else TextMuted,
+                        fontSize = 10.sp
+                    )
+                }
+                Switch(
+                    checked = isOnDeviceProcessingEnabled,
+                    onCheckedChange = { onToggleOnDeviceProcessing(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SecondaryAccent,
+                        checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f),
+                        uncheckedThumbColor = BorderGrey,
+                        uncheckedTrackColor = SurfaceDark
+                    ),
+                    modifier = Modifier.testTag("on_device_processing_toggle")
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Toggle for Do Not Disturb Sync
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceDark.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Sync with System 'Do Not Disturb'",
+                            color = TextLight,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isSystemDndActive) SecondaryAccent.copy(alpha = 0.2f) else BorderGrey.copy(alpha = 0.2f))
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = if (isSystemDndActive) "SYSTEM: ACTIVE 🔴" else "SYSTEM: INACTIVE 🟢",
+                                color = if (isSystemDndActive) SecondaryAccent else TextMuted,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    Text(
+                        text = if (dndSyncEnabled) 
+                            "Automated notification screening is suspended when DND is enabled on device." 
+                            else "Screening logic remains active regardless of system DND status.",
+                        color = if (dndSyncEnabled) SecondaryAccent else TextMuted,
+                        fontSize = 10.sp
+                    )
+                }
+                Switch(
+                    checked = dndSyncEnabled,
+                    onCheckedChange = { onToggleDndSync(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = SecondaryAccent,
+                        checkedTrackColor = SecondaryAccent.copy(alpha = 0.4f),
+                        uncheckedThumbColor = BorderGrey,
+                        uncheckedTrackColor = SurfaceDark
+                    ),
+                    modifier = Modifier.testTag("dnd_sync_toggle")
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "SYSTEM PERMISSIONS STATUS",
+                color = TextLight,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+
+            // Permissions checks
+            val hasCalendar = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.READ_CALENDAR
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            val hasMic = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            // 1. Calendar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (hasCalendar) Icons.Default.CheckCircle else Icons.Default.Warning,
+                        contentDescription = "Permission Check icon",
+                        tint = if (hasCalendar) SecondaryAccent else Color(0xFFFFCC00),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text("Calendar Events Read Integration", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (hasCalendar) "Integrated list read and prioritized filter active." else "Priority filters rely on static limits.",
+                            color = TextMuted,
+                            fontSize = 9.5.sp
+                        )
+                    }
+                }
+                Button(
+                    onClick = onSyncCalendar,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (hasCalendar) SurfaceDark else SecondaryAccent),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.height(28.dp).testTag("sync_calendar_button")
+                ) {
+                    Text(
+                        text = if (hasCalendar) "SYNC CALENDAR" else "GRANT ACCESS",
+                        color = if (hasCalendar) SecondaryAccent else BackgroundDark,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // 2. Microphone
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (hasMic) Icons.Default.CheckCircle else Icons.Default.Warning,
+                        contentDescription = "Mic Check Icon",
+                        tint = if (hasMic) SecondaryAccent else Color(0xFFFFCC00),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text("Continuous Wake Engine (Microphone)", color = TextLight, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (hasMic) "Mic listener fully configured." else "Continuous hotword recognition turned off.",
+                            color = TextMuted,
+                            fontSize = 9.5.sp
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (hasMic) SecondaryAccent.copy(alpha = 0.2f) else Color(0xFFFFCC00).copy(alpha = 0.2f))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = if (hasMic) "AUTHORIZED" else "STANDBY",
+                        color = if (hasMic) SecondaryAccent else Color(0xFFFFCC00),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // CALL-SCREENING RULES CONFIGURATION MATRIX
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Text(
+                text = "AURA CALL-SCREENING AUTOPILOT",
+                color = PrimaryAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+            Text(
+                text = "Define automated response actions or instant blocks based on target phone number wildcard patterns.",
+                color = TextMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Synthetic voice profiles setting
+            Text(
+                text = "AUTOMATED SYNTHETIC VOICE PROFILE",
+                color = SecondaryAccent,
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            Text(
+                text = "Choose the synthesized voice profile Aura utilizes when answering and screening automated calls.",
+                color = TextMuted,
+                fontSize = 9.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            val availableVoices = listOf("Kanna Classic", "Calm Professional", "Echo Sentinel", "Stellar Voice", "My Custom Profile")
+            androidx.compose.foundation.layout.FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                availableVoices.forEach { voice ->
+                    val isChosen = (selectedVoiceProfile == voice) || (selectedVoiceProfile.isEmpty() && voice == "Kanna Classic")
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isChosen) SecondaryAccent.copy(alpha = 0.15f) else SurfaceDark)
+                            .border(1.dp, if (isChosen) SecondaryAccent else BorderGrey.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                            .clickable { onSelectVoiceProfile(voice) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .testTag("voice_profile_selection_${voice.replace(" ", "_")}"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(if (isChosen) SecondaryAccent else TextMuted, shape = androidx.compose.foundation.shape.CircleShape)
+                            )
+                            Text(
+                                text = voice,
+                                color = if (isChosen) TextLight else TextMuted,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Button(
+                onClick = { 
+                    onPreviewVoiceProfile(selectedVoiceProfile.ifEmpty { "Kanna Classic" }) 
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(34.dp)
+                    .testTag("preview_voice_profile_button_privacy")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Preview Tone",
+                        tint = BackgroundDark,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "HEAR PREVIEW: ${selectedVoiceProfile.ifEmpty { "Kanna Classic" }.uppercase()}",
+                        color = BackgroundDark,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = BorderGrey.copy(alpha = 0.15f), thickness = 0.5.dp, modifier = Modifier.padding(bottom = 12.dp))
+
+            // List of current rules
+            if (callScreeningRules.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SurfaceDark, RoundedCornerShape(6.dp))
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No screening rules registered. Global filter pass active.", color = TextMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    callScreeningRules.forEach { rule ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceDark, RoundedCornerShape(6.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (rule.action == "AUTO_ANSWER") SecondaryAccent.copy(alpha = 0.2f) else Color(0xFFFF5555).copy(alpha = 0.2f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = rule.action,
+                                            color = if (rule.action == "AUTO_ANSWER") SecondaryAccent else Color(0xFFFF5555),
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = rule.pattern,
+                                        color = TextLight,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                if (rule.description.isNotEmpty()) {
+                                    Text(
+                                        text = rule.description,
+                                        color = TextMuted,
+                                        fontSize = 9.5.sp,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = { onDeleteCallScreeningRule(rule.id) },
+                                modifier = Modifier.size(24.dp).testTag("delete_rule_btn_${rule.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete Screening Rule",
+                                    tint = Color(0xFFFF5555),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Add Screening Rule Form
+            Spacer(modifier = Modifier.height(10.dp))
+            var rulePatternInput by remember { mutableStateOf("") }
+            var ruleActionInput by remember { mutableStateOf("AUTO_ANSWER") } // AUTO_ANSWER, BLOCK
+            var ruleDescInput by remember { mutableStateOf("") }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceDark.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .padding(8.dp)
+            ) {
+                Text("REGISTER NEW SCREENING ACTION", color = TextLight, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(modifier = Modifier.height(6.dp))
+
+                OutlinedTextField(
+                    value = rulePatternInput,
+                    onValueChange = { rulePatternInput = it },
+                    label = { Text("Number Pattern (e.g. +1-555-*, 1800*)", color = TextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = SecondaryAccent,
+                        unfocusedBorderColor = BorderGrey,
+                        focusedTextColor = TextLight,
+                        unfocusedTextColor = TextLight,
+                        focusedLabelColor = SecondaryAccent,
+                        unfocusedLabelColor = TextMuted
+                    ),
+                    textStyle = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.fillMaxWidth().testTag("rule_pattern_input")
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                OutlinedTextField(
+                    value = ruleDescInput,
+                    onValueChange = { ruleDescInput = it },
+                    label = { Text("Short Description (e.g., Recruiters, Spam Bots)", color = TextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = SecondaryAccent,
+                        unfocusedBorderColor = BorderGrey,
+                        focusedTextColor = TextLight,
+                        unfocusedTextColor = TextLight,
+                        focusedLabelColor = SecondaryAccent,
+                        unfocusedLabelColor = TextMuted
+                    ),
+                    textStyle = TextStyle(fontSize = 11.sp),
+                    modifier = Modifier.fillMaxWidth().testTag("rule_desc_input")
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("AUTO_ANSWER" to "AUTO ANSWER", "BLOCK" to "BLOCK CALL").forEach { (actionCode, actionLabel) ->
+                            val actSelected = ruleActionInput == actionCode
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (actSelected) SecondaryAccent else SurfaceDark)
+                                    .border(1.dp, if (actSelected) SecondaryAccent else BorderGrey.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                    .clickable { ruleActionInput = actionCode }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                                    .testTag("rule_action_$actionCode"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = actionLabel,
+                                    color = if (actSelected) BackgroundDark else TextLight,
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (rulePatternInput.trim().isEmpty()) {
+                                android.widget.Toast.makeText(context, "Number pattern cannot be empty.", android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                onAddCallScreeningRule(rulePatternInput.trim(), ruleActionInput, ruleDescInput.trim())
+                                rulePatternInput = ""
+                                ruleDescInput = ""
+                                android.widget.Toast.makeText(context, "Call-screening protection configured.", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = SecondaryAccent),
+                        shape = RoundedCornerShape(4.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(28.dp).testTag("save_rule_button")
+                    ) {
+                        Text("ADD RULE", color = BackgroundDark, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // EMAIL RESPONSE TEMPLATES & SNEAK-PEEKS LIBRARY
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(BackgroundDark)
+                .padding(12.dp)
+        ) {
+            Text(
+                text = "AURA EMAIL RESPONSE SNIPPETS",
+                color = PrimaryAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+            Text(
+                text = "Manage customized response drafts used by Aura's Postmaster engine to draft answers instantly based on priority.",
+                color = TextMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Category filter tabs
+            var selectedCategoryFilter by remember { mutableStateOf("ALL") }
+            val categories = listOf("ALL", "WORK", "PERSONAL", "URGENT")
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                categories.forEach { cat ->
+                    val activeF = selectedCategoryFilter == cat
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (activeF) PrimaryAccent else SurfaceDark)
+                            .border(1.dp, if (activeF) PrimaryAccent else BorderGrey.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                            .clickable { selectedCategoryFilter = cat }
+                            .padding(vertical = 6.dp)
+                            .testTag("filter_template_$cat"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = cat,
+                            color = if (activeF) BackgroundDark else TextLight,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+
+            // Filter list
+            val displayedTemplates = remember(emailTemplates, selectedCategoryFilter) {
+                if (selectedCategoryFilter == "ALL") emailTemplates
+                else emailTemplates.filter { it.category.uppercase() == selectedCategoryFilter }
+            }
+
+            if (displayedTemplates.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SurfaceDark, RoundedCornerShape(6.dp))
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No template snippets in this category.", color = TextMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    displayedTemplates.forEach { template ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SurfaceDark, RoundedCornerShape(6.dp))
+                                .padding(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(PrimaryAccent.copy(alpha = 0.2f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = template.category.uppercase(),
+                                            color = PrimaryAccent,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = template.name,
+                                        color = TextLight,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onDeleteEmailTemplate(template.id) },
+                                    modifier = Modifier.size(24.dp).testTag("delete_template_btn_${template.id}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete Email Template",
+                                        tint = Color(0xFFFF5555),
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = template.content,
+                                color = TextMuted,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Add Email Template Form
+            Spacer(modifier = Modifier.height(12.dp))
+            var tempNameInput by remember { mutableStateOf("") }
+            var tempCategoryInput by remember { mutableStateOf("WORK") } // WORK, PERSONAL, URGENT
+            var tempContentInput by remember { mutableStateOf("") }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceDark.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .padding(8.dp)
+            ) {
+                Text("DRAFT CUSTOM RESPONSE PRESET", color = TextLight, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(modifier = Modifier.height(6.dp))
+
+                OutlinedTextField(
+                    value = tempNameInput,
+                    onValueChange = { tempNameInput = it },
+                    label = { Text("Response Label (e.g. Meeting Decline, Out of Office)", color = TextMuted, fontSize = 11.sp) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PrimaryAccent,
+                        unfocusedBorderColor = BorderGrey,
+                        focusedTextColor = TextLight,
+                        unfocusedTextColor = TextLight,
+                        focusedLabelColor = PrimaryAccent,
+                        unfocusedLabelColor = TextMuted
+                    ),
+                    textStyle = TextStyle(fontSize = 11.sp),
+                    modifier = Modifier.fillMaxWidth().testTag("temp_name_input")
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                OutlinedTextField(
+                    value = tempContentInput,
+                    onValueChange = { tempContentInput = it },
+                    label = { Text("Email Response Template Content Snippet", color = TextMuted, fontSize = 11.sp) },
+                    minLines = 2,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PrimaryAccent,
+                        unfocusedBorderColor = BorderGrey,
+                        focusedTextColor = TextLight,
+                        unfocusedTextColor = TextLight,
+                        focusedLabelColor = PrimaryAccent,
+                        unfocusedLabelColor = TextMuted
+                    ),
+                    textStyle = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.fillMaxWidth().testTag("temp_content_input")
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("WORK", "PERSONAL", "URGENT").forEach { catSym ->
+                            val activeCatS = tempCategoryInput == catSym
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (activeCatS) PrimaryAccent else SurfaceDark)
+                                    .border(1.dp, if (activeCatS) PrimaryAccent else BorderGrey.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                    .clickable { tempCategoryInput = catSym }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                                    .testTag("temp_category_$catSym"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = catSym,
+                                    color = if (activeCatS) BackgroundDark else TextLight,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (tempNameInput.trim().isEmpty() || tempContentInput.trim().isEmpty()) {
+                                android.widget.Toast.makeText(context, "Label and Snippet contents cannot be empty.", android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                onAddEmailTemplate(tempNameInput.trim(), tempContentInput.trim(), tempCategoryInput)
+                                tempNameInput = ""
+                                tempContentInput = ""
+                                android.widget.Toast.makeText(context, "Email preset snippet enrolled.", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryAccent),
+                        shape = RoundedCornerShape(4.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(28.dp).testTag("save_template_button")
+                    ) {
+                        Text("SAVE PRESET", color = BackgroundDark, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 5. Complete Hard Storage Sanitizer Wipe
+        Button(
+            onClick = {
+                onClearAllLocalData()
+                android.widget.Toast.makeText(context, "All localized credentials, chat records, transcripts and cached system logs zeroed successfully.", android.widget.Toast.LENGTH_LONG).show()
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFAA1111)),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("clear_all_local_data_button")
+        ) {
+            Text(
+                text = "SHRED ALL PERSISTED STORES & CALIBRATION CACHES",
+                color = Color.White,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }

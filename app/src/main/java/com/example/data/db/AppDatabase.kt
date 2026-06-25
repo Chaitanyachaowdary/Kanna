@@ -37,7 +37,8 @@ data class NotificationEntity(
     val summary: String = "",
     val replyDraft: String = "",
     val status: String = "PENDING", // PENDING, SUMMARIZED, DEALT
-    val urgency: String = "NORMAL" // URGENT, NORMAL, LOW
+    val urgency: String = "NORMAL", // URGENT, NORMAL, LOW
+    val silencedByDeepWork: Boolean = false
 )
 
 @Entity(tableName = "emails")
@@ -107,6 +108,68 @@ data class CalendarEventEntity(
     val summary: String = ""
 )
 
+@Entity(tableName = "privacy_insights")
+data class PrivacyInsightEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val appOrServiceName: String,
+    val dataProcessedSummary: String,
+    val sessionTimestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "call_screening_rules")
+data class CallScreeningRuleEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val pattern: String, // Phone number match pattern (e.g. "+1-555*", "*") or Caller ID
+    val action: String,  // "AUTO_ANSWER" or "BLOCK"
+    val description: String = ""
+)
+
+@Entity(tableName = "email_templates")
+data class EmailTemplateEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val name: String,
+    val content: String,
+    val category: String, // "work", "personal", "urgent"
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "screened_transcripts")
+data class ScreenedTranscriptEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val type: String, // "CALL" or "NOTIFICATION"
+    val source: String, // e.g. Contact Name / App Name
+    val transcriptText: String, // Encrypted if isEncrypted is true
+    val summary: String, // Encrypted if isEncrypted is true
+    val isEncrypted: Boolean = false,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "aura_contacts")
+data class AuraContactEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val name: String,
+    val phoneNumber: String,
+    val category: String, // "VIP", "Work", "Family"
+    val aiResponseTone: String = "Formal", // "Formal", "Casual", "Enthusiastic"
+    val isPriority: Boolean = false
+)
+
+@Entity(tableName = "version_installations")
+data class VersionInstallationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val version: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "ai_action_history")
+data class AiActionHistoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val actionType: String, // e.g. "Chat Response", "Notification Analysis", "Email Reply Draft", etc.
+    val inputPrompt: String,
+    val generatedResponse: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 // --- DAO Interface ---
 
 @Dao
@@ -123,6 +186,9 @@ interface AuraDao {
 
     @Query("DELETE FROM calendar_events WHERE id = :id")
     suspend fun deleteCalendarEvent(id: Int)
+
+    @Query("SELECT * FROM calendar_events ORDER BY startTime ASC")
+    suspend fun getAllCalendarEventsList(): List<CalendarEventEntity>
 
     @Query("DELETE FROM calendar_events")
     suspend fun clearCalendarEvents()
@@ -235,6 +301,116 @@ interface AuraDao {
 
     @Query("DELETE FROM aura_tasks")
     suspend fun clearTasks()
+
+    // Privacy Insights
+    @Query("SELECT * FROM privacy_insights ORDER BY sessionTimestamp DESC")
+    fun getAllPrivacyInsights(): Flow<List<PrivacyInsightEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPrivacyInsight(insight: PrivacyInsightEntity)
+
+    @Query("DELETE FROM privacy_insights WHERE id = :id")
+    suspend fun deletePrivacyInsight(id: Int)
+
+    @Query("DELETE FROM privacy_insights")
+    suspend fun clearPrivacyInsights()
+
+    // Call Screening Rules
+    @Query("SELECT * FROM call_screening_rules ORDER BY pattern ASC")
+    fun getAllCallScreeningRules(): Flow<List<CallScreeningRuleEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCallScreeningRule(rule: CallScreeningRuleEntity)
+
+    @Query("DELETE FROM call_screening_rules WHERE id = :id")
+    suspend fun deleteCallScreeningRule(id: Int)
+
+    // Email Templates
+    @Query("SELECT * FROM email_templates ORDER BY category ASC, name ASC")
+    fun getAllEmailTemplates(): Flow<List<EmailTemplateEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEmailTemplate(template: EmailTemplateEntity)
+
+    @Query("DELETE FROM email_templates WHERE id = :id")
+    suspend fun deleteEmailTemplate(id: Int)
+
+    // Screened Transcripts
+    @Query("SELECT * FROM screened_transcripts ORDER BY timestamp DESC")
+    fun getAllScreenedTranscripts(): Flow<List<ScreenedTranscriptEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertScreenedTranscript(transcript: ScreenedTranscriptEntity)
+
+    @Query("DELETE FROM screened_transcripts WHERE id = :id")
+    suspend fun deleteScreenedTranscript(id: Int)
+
+    @Query("DELETE FROM screened_transcripts")
+    suspend fun clearScreenedTranscripts()
+
+    @Query("DELETE FROM screened_transcripts WHERE timestamp < :cutoff")
+    suspend fun deleteOldScreenedTranscripts(cutoff: Long)
+
+    // Aura Contacts
+    @Query("SELECT * FROM aura_contacts ORDER BY name ASC")
+    fun getAllContacts(): Flow<List<AuraContactEntity>>
+
+    @Query("SELECT * FROM aura_contacts")
+    suspend fun getAllContactsList(): List<AuraContactEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertContact(contact: AuraContactEntity)
+
+    @Query("DELETE FROM aura_contacts WHERE id = :id")
+    suspend fun deleteContact(id: Int)
+
+    // --- Auto Cleanup Old Logs and Transcripts ---
+    @Query("DELETE FROM chat_messages WHERE timestamp < :cutoff")
+    suspend fun deleteOldChatMessages(cutoff: Long)
+
+    @Query("DELETE FROM notifications WHERE timestamp < :cutoff")
+    suspend fun deleteOldNotifications(cutoff: Long)
+
+    @Query("DELETE FROM emails WHERE timestamp < :cutoff")
+    suspend fun deleteOldEmails(cutoff: Long)
+
+    @Query("DELETE FROM secure_files WHERE timestamp < :cutoff")
+    suspend fun deleteOldSecureFiles(cutoff: Long)
+
+    @Query("DELETE FROM social_posts WHERE timestamp < :cutoff")
+    suspend fun deleteOldSocialPosts(cutoff: Long)
+
+    @Query("DELETE FROM aura_tasks WHERE timestamp < :cutoff")
+    suspend fun deleteOldTasks(cutoff: Long)
+
+    @Query("DELETE FROM call_sessions WHERE timestamp < :cutoff")
+    suspend fun deleteOldCallSessions(cutoff: Long)
+
+    @Query("DELETE FROM privacy_insights WHERE sessionTimestamp < :cutoff")
+    suspend fun deleteOldPrivacyInsights(cutoff: Long)
+
+    // Version Installations
+    @Query("SELECT * FROM version_installations ORDER BY timestamp DESC")
+    fun getAllVersionInstallations(): Flow<List<VersionInstallationEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertVersionInstallation(installation: VersionInstallationEntity)
+
+    // AI Action History
+    @Query("SELECT * FROM ai_action_history ORDER BY timestamp DESC")
+    fun getAllAiActionHistory(): Flow<List<AiActionHistoryEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAiAction(action: AiActionHistoryEntity)
+
+    @Query("DELETE FROM ai_action_history WHERE id = :id")
+    suspend fun deleteAiAction(id: Int)
+
+    @Query("DELETE FROM ai_action_history")
+    suspend fun clearAiActionHistory()
+
+    @Query("DELETE FROM ai_action_history WHERE timestamp < :cutoff")
+    suspend fun deleteOldAiActions(cutoff: Long)
 }
 
 // --- AppDatabase ---
@@ -249,9 +425,16 @@ interface AuraDao {
         SocialPostEntity::class,
         CallSessionEntity::class,
         CalendarEventEntity::class,
-        AuraTaskEntity::class
+        AuraTaskEntity::class,
+        PrivacyInsightEntity::class,
+        CallScreeningRuleEntity::class,
+        EmailTemplateEntity::class,
+        ScreenedTranscriptEntity::class,
+        AuraContactEntity::class,
+        VersionInstallationEntity::class,
+        AiActionHistoryEntity::class
     ],
-    version = 8, // Bumped to support tasks and social post schedule field
+    version = 14, // Bumped to support AI action history
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

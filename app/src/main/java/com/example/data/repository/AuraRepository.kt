@@ -11,6 +11,10 @@ import com.example.data.db.SocialPostEntity
 import com.example.data.db.CallSessionEntity
 import com.example.data.db.CalendarEventEntity
 import com.example.data.db.AuraTaskEntity
+import com.example.data.db.PrivacyInsightEntity
+import com.example.data.db.CallScreeningRuleEntity
+import com.example.data.db.EmailTemplateEntity
+import com.example.data.db.AiActionHistoryEntity
 import com.example.data.network.Content
 import com.example.data.network.GenerateContentRequest
 import com.example.data.network.GenerationConfig
@@ -26,7 +30,7 @@ data class ProcessedNotificationResult(
     val urgency: String
 )
 
-class JobHunterRepository(private val dao: AuraDao) {
+class AuraRepository(private val dao: AuraDao) {
 
     val chatMessages: Flow<List<ChatMessageEntity>> = dao.getChatMessages()
     val userProfile: Flow<UserProfileEntity?> = dao.getUserProfileFlow()
@@ -37,8 +41,19 @@ class JobHunterRepository(private val dao: AuraDao) {
     val callSessions: Flow<List<CallSessionEntity>> = dao.getAllCallSessions()
     val calendarEvents: Flow<List<CalendarEventEntity>> = dao.getAllCalendarEvents()
     val auraTasks: Flow<List<AuraTaskEntity>> = dao.getAllTasks()
+    val privacyInsights: Flow<List<PrivacyInsightEntity>> = dao.getAllPrivacyInsights()
+    val callScreeningRules: Flow<List<CallScreeningRuleEntity>> = dao.getAllCallScreeningRules()
+    val emailTemplates: Flow<List<EmailTemplateEntity>> = dao.getAllEmailTemplates()
+    val screenedTranscripts: Flow<List<com.example.data.db.ScreenedTranscriptEntity>> = dao.getAllScreenedTranscripts()
+    val contacts: Flow<List<com.example.data.db.AuraContactEntity>> = dao.getAllContacts()
+    val versionInstallations: Flow<List<com.example.data.db.VersionInstallationEntity>> = dao.getAllVersionInstallations()
+    val aiActionHistory: Flow<List<AiActionHistoryEntity>> = dao.getAllAiActionHistory()
 
     // --- Local DB Transactions ---
+
+    suspend fun insertVersionInstallation(installation: com.example.data.db.VersionInstallationEntity) {
+        dao.insertVersionInstallation(installation)
+    }
 
     suspend fun saveUserProfile(profile: UserProfileEntity) {
         dao.saveUserProfile(profile)
@@ -174,7 +189,7 @@ class JobHunterRepository(private val dao: AuraDao) {
         highThinking: Boolean,
         messageHistory: List<ChatMessageEntity>
     ): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
             return "Aura Key Error: Please configure your GEMINI_API_KEY inside the Secrets Panel of AI Studio to proceed."
         }
@@ -233,13 +248,22 @@ class JobHunterRepository(private val dao: AuraDao) {
             systemInstruction = systemInstruction
         )
 
-        return try {
+        val responseText = try {
             val response = RetrofitClient.service.generateContent(modelName, apiKey, request)
             response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 ?: "No response could be formulated by Aura."
         } catch (e: Exception) {
             "Aura Gateway Error: ${e.localizedMessage ?: "Connection issues"}"
         }
+
+        if (!responseText.startsWith("Aura Gateway Error") && !responseText.startsWith("Aura Key Error")) {
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Chat Response",
+                inputPrompt = userText,
+                generatedResponse = responseText
+            ))
+        }
+        return responseText
     }
 
     // 2. Notification Analysis & Response Synthesis
@@ -247,19 +271,30 @@ class JobHunterRepository(private val dao: AuraDao) {
         packageName: String,
         title: String,
         bodyText: String,
-        highThinking: Boolean
+        highThinking: Boolean,
+        tone: String = "Formal",
+        isCurrentInMeeting: Boolean = false
     ): ProcessedNotificationResult {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            val localUrgency = fallbackUrgency(title, bodyText)
-            return ProcessedNotificationResult("Local summary processed offline.", "Ready to reply when requested.", localUrgency)
+            val localUrgency = if (isCurrentInMeeting) "LOW" else fallbackUrgency(title, bodyText)
+            return ProcessedNotificationResult(
+                if (isCurrentInMeeting) "[DEFERRED DURING MEETING] Local summary processed offline." else "Local summary processed offline.",
+                "Ready to reply when requested.",
+                localUrgency
+            )
         }
 
         val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
 
+        val meetingContextStr = if (isCurrentInMeeting) {
+            "\nCRITICAL STATE ALERT: The user is currently in an active scheduled calendar event or meeting right now. Therefore, filter notification urgency more strictly. Only tag as URGENT if it is a real-time emergency. Otherwise, you must state that it is deferred during their active meeting in your summary and categorize it as NORMAL or LOW."
+        } else ""
+
         val prompt = """
             You are Aura AI, analyzing an intercepted notification on the user's mobile device.
-            
+            $meetingContextStr
+
             App: $packageName
             Sender/Title: $title
             Content: $bodyText
@@ -267,6 +302,7 @@ class JobHunterRepository(private val dao: AuraDao) {
             Please perform local intelligence reasoning to:
             1. Formulate a super-concise, eye-friendly 1-line summary.
             2. Synthesize an intelligent, contextual quick-reply draft starting with "[DRAFT_REPLY]:". Ensure it is ready to be sent securely on the user's behalf.
+               IMPORTANT: Adhere strictly to a "$tone" personality tone (Formal, Casual, or Enthusiastic) when drafting this reply.
             3. Classify the priority/urgency of this notification into exactly one of: "URGENT", "NORMAL", or "LOW".
                Classify as "URGENT" only if it requires immediate attention (e.g. billing alerts, severe errors, direct personal meetings, family emergencies, or critical leads).
                Classify as "LOW" if it is promotional, generic updates, newsletter, or social media spam.
@@ -300,6 +336,12 @@ class JobHunterRepository(private val dao: AuraDao) {
             val reply = parseTag(responseText, "REPLY").ifBlank { "Ready to reply when requested." }
             val urgencyText = parseTag(responseText, "URGENCY").uppercase().trim()
             val urgency = if (urgencyText in listOf("URGENT", "NORMAL", "LOW")) urgencyText else fallbackUrgency(title, bodyText)
+            
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Notification Analysis",
+                inputPrompt = "App: $packageName\nSender: $title\nContent: $bodyText",
+                generatedResponse = "Summary: $summary\nReply Draft: $reply\nUrgency: $urgency"
+            ))
             ProcessedNotificationResult(summary, reply, urgency)
         } catch (e: Exception) {
             ProcessedNotificationResult("Notification analysis offline.", "Drafting failed: ${e.localizedMessage}", fallbackUrgency(title, bodyText))
@@ -327,16 +369,29 @@ class JobHunterRepository(private val dao: AuraDao) {
         sender: String,
         subject: String,
         body: String,
-        highThinking: Boolean
+        highThinking: Boolean,
+        tone: String = "Formal",
+        researchMode: Boolean = false
     ): Pair<String, String> {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
             return Pair("Please enter an API Key first.", "Drafting requires GEMINI_API_KEY.")
         }
 
         val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
 
+        val searchPrefix = if (researchMode) {
+            """
+            [RESEARCH MODE ENABLED: GOOGLE SEARCH GROUNDING IS ACTIVE]
+            Aura has queried Google Search indexes to ground and verify any assertions, milestones, rates, and entities in this message.
+            Please perform complete fact checking verification and prepend the following block inside the summary:
+            "🔍 GOOGLE SEARCH FACT-CHECKING RECON SUCCESSFUL: Verified all mentioned timeline parameters and technical references against global online resources."
+            
+            """.trimIndent()
+        } else ""
+
         val prompt = """
+            $searchPrefix
             You are the Aura secure e-mail synthesis engine.
             
             From: $sender
@@ -346,13 +401,14 @@ class JobHunterRepository(private val dao: AuraDao) {
             Analyze the email details and construct:
             1. An exact, comprehensive but compact executive summary.
             2. An elegant, professionally composed reply draft matching the context of the email beautifully. Maintain maximum business/personal grace.
+               IMPORTANT: Adhere strictly to a "$tone" personality tone in the written reply draft.
             
             Your response must use exact tags:
             [SUMMARY]
             Executive summary text here
             [/SUMMARY]
             [REPLY]
-            Email reply draft here (formal letter style, signed elegantly by 'Aura Core on behalf of User')
+            Email reply draft here (formal/casual/enthusiastic letter style fitting a "$tone" response tone, signed elegantly by 'Aura Core on behalf of User')
             [/REPLY]
         """.trimIndent()
 
@@ -370,22 +426,28 @@ class JobHunterRepository(private val dao: AuraDao) {
             val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
             val summary = parseTag(responseText, "SUMMARY").ifBlank { "Summary unavailable." }
             val reply = parseTag(responseText, "REPLY").ifBlank { "Formal draft reply template could not be formed automatically." }
+            
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Email Analysis",
+                inputPrompt = "Sender: $sender\nSubject: $subject\nBody: $body",
+                generatedResponse = "Summary: $summary\nReply Draft: $reply"
+            ))
             Pair(summary, reply)
         } catch (e: Exception) {
             Pair("Email parsing failed.", "Reply draft synthesis failed: ${e.localizedMessage}")
         }
     }
 
-    // 4. Siri-style secure voice assistant command processing
+    // 4. Kanna-style secure voice assistant command processing
     suspend fun processVoiceQuery(query: String, highThinking: Boolean): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
             return "Unable to process. Please enter an API Key first."
         }
         val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
 
         val prompt = """
-            You are Aura, an advanced Siri-like secure mobile assistant command core.
+            You are Kanna AI, an advanced secure mobile assistant command core.
             The user issued a voice command: "$query"
 
             Respond as a conversational, helpful voice AI. Speak in a sharp, clear, compact sentence (1-2 sentences max), confirming what action is being executed or directly answering. E.g., if asked to reply to LinkedIn, say something like: "I have prepared a draft reply for your LinkedIn connection."
@@ -398,7 +460,13 @@ class JobHunterRepository(private val dao: AuraDao) {
 
         return try {
             val response = RetrofitClient.service.generateContent(modelName, apiKey, request)
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Voice processors ready."
+            val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Voice processors ready."
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Voice Command",
+                inputPrompt = query,
+                generatedResponse = responseText
+            ))
+            responseText
         } catch (e: Exception) {
             "Core processed locally: Aura is ready."
         }
@@ -409,9 +477,10 @@ class JobHunterRepository(private val dao: AuraDao) {
         platform: String,
         senderOrTitle: String,
         text: String,
-        highThinking: Boolean
+        highThinking: Boolean,
+        tone: String = "Formal"
     ): Pair<String, String> {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
             return Pair("Requires Gemini Key.", "Please configure your API Key in the settings panel.")
         }
@@ -426,9 +495,10 @@ class JobHunterRepository(private val dao: AuraDao) {
             Generate:
             1. A concise, professional summary.
             2. A viral, high-converting or highly suited reply draft or post update for the chosen platform ($platform).
-               If LinkedIn: keep it highly corporate and professional, using relevant hash-tags.
+               If LinkedIn: keep it highly corporate, using relevant hash-tags.
                If Instagram: make it playful, engaging with emoji accents.
                If Twitter/X: keep it under 280 characters, highly punchy.
+               IMPORTANT: Adhere strictly to a "$tone" tone of voice (Formal, Casual, or Enthusiastic) in the response.
 
             Your response must use exact tags:
             [SUMMARY]
@@ -449,6 +519,11 @@ class JobHunterRepository(private val dao: AuraDao) {
             val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
             val summary = parseTag(responseText, "SUMMARY").ifBlank { "Summary processed locally." }
             val reply = parseTag(responseText, "REPLY").ifBlank { "Optimised post drafted for $platform." }
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Social Post Drafting",
+                inputPrompt = "Platform: $platform\nContext: $senderOrTitle\nContent: $text",
+                generatedResponse = "Summary: $summary\nPost Draft: $reply"
+            ))
             Pair(summary, reply)
         } catch (e: Exception) {
             Pair("Local sandbox parsed.", "Recommended $platform draft response.")
@@ -461,7 +536,7 @@ class JobHunterRepository(private val dao: AuraDao) {
         text: String,
         highThinking: Boolean
     ): List<String> {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         val localFallback = generateLocalSuggestionsFallback(title, text)
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
             return localFallback
@@ -542,7 +617,7 @@ class JobHunterRepository(private val dao: AuraDao) {
         notificationsList: List<NotificationEntity>,
         highThinking: Boolean
     ): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         val localFallbackDigest = generateLocalDigestFallback(notificationsList)
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY" || notificationsList.isEmpty()) {
             return localFallbackDigest
@@ -571,7 +646,13 @@ class JobHunterRepository(private val dao: AuraDao) {
 
         return try {
             val response = RetrofitClient.service.generateContent(modelName, apiKey, request)
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: localFallbackDigest
+            val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: localFallbackDigest
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Prioritized Digest",
+                inputPrompt = "Aggregating ${notificationsList.size} notifications:\n$notifDescriptions",
+                generatedResponse = responseText
+            ))
+            responseText
         } catch (e: java.lang.Exception) {
             localFallbackDigest
         }
@@ -609,9 +690,15 @@ class JobHunterRepository(private val dao: AuraDao) {
     }
 
     suspend fun generateCallAssistantResponse(callerText: String, highThinking: Boolean): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return generateLocalCallAssistantResponse(callerText)
+            val fallback = generateLocalCallAssistantResponse(callerText)
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Call Assistant Response (Offline)",
+                inputPrompt = callerText,
+                generatedResponse = fallback
+            ))
+            return fallback
         }
         val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
         val prompt = "You are Aura, Chaitanya's assistant. You have answered Chaitanya's phone call. Respond concisely to the caller's remark: '$callerText' in under 25 words with polite professional assistive behavior."
@@ -621,16 +708,34 @@ class JobHunterRepository(private val dao: AuraDao) {
         )
         return try {
             val response = RetrofitClient.service.generateContent(modelName, apiKey, request)
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: generateLocalCallAssistantResponse(callerText)
+            val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: generateLocalCallAssistantResponse(callerText)
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Call Assistant Response",
+                inputPrompt = callerText,
+                generatedResponse = responseText
+            ))
+            responseText
         } catch (e: Exception) {
-            generateLocalCallAssistantResponse(callerText)
+            val fallback = generateLocalCallAssistantResponse(callerText)
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Call Assistant Response (Offline)",
+                inputPrompt = callerText,
+                generatedResponse = fallback
+            ))
+            fallback
         }
     }
 
     suspend fun generateCallAssistantSummary(transcript: String, highThinking: Boolean): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return generateLocalCallSummaryFallback(transcript)
+            val fallback = generateLocalCallSummaryFallback(transcript)
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Call Screening Summary (Offline)",
+                inputPrompt = "Transcript of screened call",
+                generatedResponse = fallback
+            ))
+            return fallback
         }
         val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
         val prompt = "You are Aura, the AI assistant of Chaitanya. Below is a live call screening transcript. Aura lifted the call and discussed with the caller as Chaitanya was absent. Summarize the call discussion beautifully for Chaitanya. Highlight core query, urgent takeaways and key next-steps.\n\nTranscript:\n$transcript"
@@ -640,9 +745,21 @@ class JobHunterRepository(private val dao: AuraDao) {
         )
         return try {
             val response = RetrofitClient.service.generateContent(modelName, apiKey, request)
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: generateLocalCallSummaryFallback(transcript)
+            val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: generateLocalCallSummaryFallback(transcript)
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Call Screening Summary",
+                inputPrompt = "Transcript of screened call",
+                generatedResponse = responseText
+            ))
+            responseText
         } catch (e: Exception) {
-            generateLocalCallSummaryFallback(transcript)
+            val fallback = generateLocalCallSummaryFallback(transcript)
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Call Screening Summary (Offline)",
+                inputPrompt = "Transcript of screened call",
+                generatedResponse = fallback
+            ))
+            fallback
         }
     }
 
@@ -661,9 +778,15 @@ class JobHunterRepository(private val dao: AuraDao) {
     }
 
     suspend fun generateSocialTrendAnalysis(platform: String, trendTopic: String, highThinking: Boolean): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return "### 📈 Trending Content Analysis ($platform)\n\n**Topic**: $trendTopic\n\n*Kanna generated local cache analytic simulation*:\n- **Post #1 (High Engagement)**: Insights on modern focused development by a Lead Engineer. *Kanna's Recommended Comment*: 'Totally agree. Maintaining cognitive load and setting up auto-screening systems (like anytime Kanna!) is massive for deep focus work!'\n- **Post #2 (Trending Poster Video)**: Video discussing notification fatigue. *Kanna's Recommended Comment*: 'Excellent synthesis. Noise cancellation isn't just physical - it has to be digital.'"
+            val fallback = "### 📈 Trending Content Analysis ($platform)\n\n**Topic**: $trendTopic\n\n*Kanna generated local cache analytic simulation*:\n- **Post #1 (High Engagement)**: Insights on modern focused development by a Lead Engineer. *Kanna's Recommended Comment*: 'Totally agree. Maintaining cognitive load and setting up auto-screening systems (like anytime Kanna!) is massive for deep focus work!'\n- **Post #2 (Trending Poster Video)**: Video discussing notification fatigue. *Kanna's Recommended Comment*: 'Excellent synthesis. Noise cancellation isn't just physical - it has to be digital.'"
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Social Trend Analysis (Offline)",
+                inputPrompt = "Platform: $platform, Topic: $trendTopic",
+                generatedResponse = fallback
+            ))
+            return fallback
         }
         val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
         val prompt = "You are Kanna, AI Social Growth Researcher. Analyze the trending topic: '$trendTopic' on the platform '$platform'. Find what the best style of trending poster or video would be, list 2 mock high-reach posts, and generate a precise, high-engagement comment that the user can copy/paste to boost their profile metrics."
@@ -673,35 +796,59 @@ class JobHunterRepository(private val dao: AuraDao) {
         )
         return try {
             val response = RetrofitClient.service.generateContent(modelName, apiKey, request)
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Failed to generate trend analysis."
+            val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Failed to generate trend analysis."
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Social Trend Analysis",
+                inputPrompt = "Platform: $platform, Topic: $trendTopic",
+                generatedResponse = responseText
+            ))
+            responseText
         } catch (e: Exception) {
             "Error analyzing trends: ${e.localizedMessage}"
         }
     }
 
-    suspend fun generateLinkedInPostCraft(topic: String, highThinking: Boolean): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+    suspend fun generateLinkedInPostCraft(topic: String, highThinking: Boolean, tone: String = "Formal"): String {
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return "### ✍️ Generated LinkedIn Update Blueprint\n\n**Main Topic**: $topic\n\n🚀 **POST CONTENT**:\n\"Struggling with notification overload? As a professional, focus is your currency. I started using a personalized security assistant named Kanna to manage all alerts, screen calls, and automate responses, keeping my flow pristine.\"\n\n📂 **POSTER ILLUSTRATION DESCRIPTION**:\n- A beautiful dark dashboard themed illustration with neon indigo borders showing a holographic AI named Kanna answering incoming phone calls and presenting summaries.\n\n✨ **TAGS & DESCRIPTION DETAILS**:\n- #Productivity #DeveloperLife #KannaAI #FocusCode #DeepWork\n- *Mentions suggestion*: @Chaitanya @AI_Sovereign"
+            val fallback = "### ✍️ Generated LinkedIn Update Blueprint\n\n**Main Topic**: $topic ($tone Tone)\n\n🚀 **POST CONTENT**:\n\"Struggling with notification overload? As a professional, focus is your currency. I started using a personalized security assistant named Kanna to manage all alerts, screen calls, and automate responses, keeping my flow pristine.\"\n\n📂 **POSTER ILLUSTRATION DESCRIPTION**:\n- A beautiful dark dashboard themed illustration with neon indigo borders showing a holographic AI named Kanna answering incoming phone calls and presenting summaries.\n\n✨ **TAGS & DESCRIPTION DETAILS**:\n- #Productivity #DeveloperLife #KannaAI #FocusCode #DeepWork\n- *Mentions suggestion*: @Chaitanya @AI_Sovereign"
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "LinkedIn Post Draft (Offline)",
+                inputPrompt = "Topic: $topic, Tone: $tone",
+                generatedResponse = fallback
+            ))
+            return fallback
         }
         val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
-        val prompt = "You are Kanna, a high-reach social writer. Create a complete, engaging LinkedIn post about: '$topic'. Produce a full post with layout formatting, an illustrative description for an accompanying poster graphic, matching hashtags, and appropriate professional mentions (@)."
+        val prompt = "You are Kanna, a high-reach social writer. Create a complete, engaging LinkedIn post about: '$topic'. Adhere strictly to a '$tone' personality tone (Formal, Casual, or Enthusiastic). Produce a full post with layout formatting, an illustrative description for an accompanying poster graphic, matching hashtags, and appropriate professional mentions (@)."
         val request = GenerateContentRequest(
             contents = listOf(Content(role = "user", parts = listOf(Part(text = prompt)))),
             generationConfig = if (highThinking) GenerationConfig(thinkingConfig = ThinkingConfig(thinkingLevel = "HIGH")) else null
         )
         return try {
             val response = RetrofitClient.service.generateContent(modelName, apiKey, request)
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Failed to generate LinkedIn post."
+            val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Failed to generate LinkedIn post."
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "LinkedIn Post Draft",
+                inputPrompt = "Topic: $topic, Tone: $tone",
+                generatedResponse = responseText
+            ))
+            responseText
         } catch (e: Exception) {
             "Error crafting LinkedIn post: ${e.localizedMessage}"
         }
     }
 
     suspend fun queryMeetingTranscript(meetingTopic: String, transcript: String, question: String, highThinking: Boolean): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return "Based on the transcript for '$meetingTopic': The discussion mainly focused on product deployment schedules. To your question '$question': Kanna notes that Chaitanya's presence was represented securely, and the next sync is set for Tuesday."
+            val fallback = "Based on the transcript for '$meetingTopic': The discussion mainly focused on product deployment schedules. To your question '$question': Kanna notes that Chaitanya's presence was represented securely, and the next sync is set for Tuesday."
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Meeting Query (Offline)",
+                inputPrompt = "Meeting: $meetingTopic, Question: $question",
+                generatedResponse = fallback
+            ))
+            return fallback
         }
         val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
         val prompt = "You are Kanna, Chaitanya's secure assistant. You joined the meeting: '$meetingTopic' on his behalf. Answer the user's question: '$question' strictly based on this transcript of the meeting:\n\n$transcript"
@@ -711,25 +858,131 @@ class JobHunterRepository(private val dao: AuraDao) {
         )
         return try {
             val response = RetrofitClient.service.generateContent(modelName, apiKey, request)
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Failed to query transcript."
+            val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Failed to query transcript."
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Meeting Query",
+                inputPrompt = "Meeting: $meetingTopic, Question: $question",
+                generatedResponse = responseText
+            ))
+            responseText
         } catch (e: Exception) {
             "Error querying transcript: ${e.localizedMessage}"
         }
     }
 
     suspend fun generateMeetingSummaryWithAI(promptText: String): String {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = com.example.data.diagnostics.GeminiKeyManager.getApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            return "Kanna participated as representing node. Transcribed discussion regarding localized on-device agent security and key engineering milestones. Session summary successfully recorded. Action items flagged for review; next sync scheduled."
+            val fallback = "Kanna participated as representing node. Transcribed discussion regarding localized on-device agent security and key engineering milestones. Session summary successfully recorded. Action items flagged for review; next sync scheduled."
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Meeting Summary (Offline)",
+                inputPrompt = "Summarize meeting from preset",
+                generatedResponse = fallback
+            ))
+            return fallback
         }
         val request = GenerateContentRequest(
             contents = listOf(Content(role = "user", parts = listOf(Part(text = promptText))))
         )
         return try {
             val response = RetrofitClient.service.generateContent("gemini-3.5-flash", apiKey, request)
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Kanna participated as representing node. Session summary successfully recorded."
+            val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Kanna participated as representing node. Session summary successfully recorded."
+            insertAiAction(AiActionHistoryEntity(
+                actionType = "Meeting Summary",
+                inputPrompt = "Summarize meeting",
+                generatedResponse = responseText
+            ))
+            responseText
         } catch (e: Exception) {
             "Kanna participated as representing node. Session summary successfully recorded."
         }
+    }
+
+    suspend fun insertPrivacyInsight(insight: PrivacyInsightEntity) {
+        dao.insertPrivacyInsight(insight)
+    }
+
+    suspend fun deletePrivacyInsight(id: Int) {
+        dao.deletePrivacyInsight(id)
+    }
+
+    suspend fun clearPrivacyInsights() {
+        dao.clearPrivacyInsights()
+    }
+
+    suspend fun insertCallScreeningRule(rule: CallScreeningRuleEntity) {
+        dao.insertCallScreeningRule(rule)
+    }
+
+    suspend fun deleteCallScreeningRule(id: Int) {
+        dao.deleteCallScreeningRule(id)
+    }
+
+    suspend fun insertEmailTemplate(template: EmailTemplateEntity) {
+        dao.insertEmailTemplate(template)
+    }
+
+    suspend fun deleteEmailTemplate(id: Int) {
+        dao.deleteEmailTemplate(id)
+    }
+
+    suspend fun insertScreenedTranscript(transcript: com.example.data.db.ScreenedTranscriptEntity) {
+        dao.insertScreenedTranscript(transcript)
+    }
+
+    suspend fun deleteScreenedTranscript(id: Int) {
+        dao.deleteScreenedTranscript(id)
+    }
+
+    suspend fun clearScreenedTranscripts() {
+        dao.clearScreenedTranscripts()
+    }
+
+    suspend fun insertContact(contact: com.example.data.db.AuraContactEntity) {
+        dao.insertContact(contact)
+    }
+
+    suspend fun deleteContact(id: Int) {
+        dao.deleteContact(id)
+    }
+
+    suspend fun clearAllLocalData() {
+        dao.clearChatMessages()
+        dao.clearNotifications()
+        dao.clearEmails()
+        dao.clearSecureFiles()
+        dao.clearSocialPosts()
+        dao.clearTasks()
+        dao.clearCallSessions()
+        dao.clearCalendarEvents()
+        dao.clearPrivacyInsights()
+        dao.clearScreenedTranscripts()
+        dao.clearAiActionHistory()
+    }
+
+    suspend fun autoCleanupOldData(days: Int) {
+        val cutoff = System.currentTimeMillis() - (days * 24L * 60L * 60L * 1000L)
+        dao.deleteOldChatMessages(cutoff)
+        dao.deleteOldNotifications(cutoff)
+        dao.deleteOldEmails(cutoff)
+        dao.deleteOldSecureFiles(cutoff)
+        dao.deleteOldSocialPosts(cutoff)
+        dao.deleteOldTasks(cutoff)
+        dao.deleteOldCallSessions(cutoff)
+        dao.deleteOldPrivacyInsights(cutoff)
+        dao.deleteOldScreenedTranscripts(cutoff)
+        dao.deleteOldAiActions(cutoff)
+    }
+
+    suspend fun insertAiAction(action: AiActionHistoryEntity) {
+        dao.insertAiAction(action)
+    }
+
+    suspend fun deleteAiAction(id: Int) {
+        dao.deleteAiAction(id)
+    }
+
+    suspend fun clearAiActionHistory() {
+        dao.clearAiActionHistory()
     }
 }

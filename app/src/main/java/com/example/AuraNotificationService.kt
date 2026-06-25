@@ -27,6 +27,25 @@ class AuraNotificationService : NotificationListenerService() {
             return
         }
 
+        // 1d. Check Do Not Disturb (DND) Sync status (API 23+)
+        val dndSyncEnabled = prefs.getBoolean("dnd_sync_enabled", false)
+        if (dndSyncEnabled) {
+            try {
+                val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                val interruptionFilter = notificationManager.currentInterruptionFilter
+                
+                // INTERRUPTION_FILTER_ALL is 1 (DND off). Any other value means some level of DND is active.
+                val isDndActive = interruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL &&
+                                  interruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_UNKNOWN
+                if (isDndActive) {
+                    Log.d("AuraNotification", "Notification discarded: Do Not Disturb status is active.")
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e("AuraNotification", "Failed to check system DND status", e)
+            }
+        }
+
         // 1a. Check Quiet Hours Schedule
         val qhEnabled = prefs.getBoolean("quiet_hours_enabled", false)
         if (qhEnabled) {
@@ -102,6 +121,71 @@ class AuraNotificationService : NotificationListenerService() {
             else -> "NORMAL"
         }
 
+        // Check if the title/sender matches any Priority Contact designated by the user
+        var isPriorityContact = false
+        try {
+            val db = AppDatabase.getDatabase(applicationContext)
+            isPriorityContact = kotlinx.coroutines.runBlocking {
+                val contacts = db.dao().getAllContactsList()
+                contacts.any { contact ->
+                    (contact.isPriority || contact.category.equals("VIP", ignoreCase = true)) && (
+                        title.equals(contact.name, ignoreCase = true) ||
+                        text.contains(contact.name, ignoreCase = true) ||
+                        (contact.phoneNumber.isNotEmpty() && (
+                            title.contains(contact.phoneNumber) ||
+                            text.contains(contact.phoneNumber)
+                        ))
+                    )
+                }
+            }
+            if (isPriorityContact) {
+                Log.d("AuraNotification", "Notification matches priority contact: $title. Bypassing Deep Work silence mode.")
+            }
+        } catch (e: Exception) {
+            Log.e("AuraNotification", "Failed to query priority contacts database table", e)
+        }
+
+        // Check if Deep Work Mode is active and silences non-urgent notifications
+        val deepWorkActive = prefs.getBoolean("deep_work_active", false)
+        val deepWorkUntil = prefs.getLong("deep_work_until", 0L)
+        
+        // 1f. Calendar Integration Service reads local calendar events to adjust AI notification priorities based on meeting status
+        var finalUrgency = computedUrgency
+        var calendarStatusMuted = false
+        try {
+            val db = AppDatabase.getDatabase(applicationContext)
+            val currentTime = System.currentTimeMillis()
+            val activeEvents = kotlinx.coroutines.runBlocking {
+                db.dao().getAllCalendarEventsList()
+            }.filter { event ->
+                event.startTime <= currentTime && currentTime <= event.endTime && event.status != "COMPLETED"
+            }
+            if (activeEvents.isNotEmpty()) {
+                val currentMeeting = activeEvents.first()
+                Log.d("AuraNotification", "Active calendar meeting detected: '${currentMeeting.title}' with status [${currentMeeting.status}]. Adjusting notification weight.")
+                
+                // Downgrade normal/low severity notifications to LOW and mute them since the user is in a meeting
+                if (finalUrgency != "URGENT" && !isPriorityContact) {
+                    calendarStatusMuted = true
+                    finalUrgency = "LOW"
+                    Log.d("AuraNotification", "Notification downgraded to LOW and silenced due to calendar meeting focus.")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("AuraNotification", "Error reading local calendar events for prioritization update", e)
+        }
+
+        var shouldBeSilenced = false
+        if (deepWorkActive && System.currentTimeMillis() < deepWorkUntil) {
+            if (finalUrgency != "URGENT" && !isPriorityContact) {
+                Log.d("AuraNotification", "Notification silenced: Deep Work Focus session is active.")
+                shouldBeSilenced = true
+            }
+        }
+        if (calendarStatusMuted) {
+            shouldBeSilenced = true
+        }
+
         serviceScope.launch {
             try {
                 val db = AppDatabase.getDatabase(applicationContext)
@@ -110,10 +194,11 @@ class AuraNotificationService : NotificationListenerService() {
                     title = title,
                     text = text,
                     timestamp = System.currentTimeMillis(),
-                    urgency = computedUrgency
+                    urgency = finalUrgency,
+                    silencedByDeepWork = shouldBeSilenced
                 )
                 db.dao().insertNotification(notification)
-                Log.d("AuraNotification", "Saved notification from $packageName (Urgency=$computedUrgency): $title - $text")
+                Log.d("AuraNotification", "Saved notification from $packageName (Urgency=$finalUrgency, Silenced=$shouldBeSilenced): $title - $text")
             } catch (e: Exception) {
                 Log.e("AuraNotification", "Error saving notification to Room database", e)
             }
