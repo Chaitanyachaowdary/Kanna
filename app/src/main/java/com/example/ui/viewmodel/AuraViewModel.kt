@@ -689,7 +689,7 @@ class AuraViewModel(private val repository: AuraRepository) : ViewModel() {
                 module = "GEMINI_API",
                 level = "ERROR",
                 message = "Handshake aborted due to invalid API Key format.",
-                details = "Key must start with 'AIzaSy', contain only letters/digits/hyphens/underscores, and be 35-45 characters long."
+                details = "Key may only contain letters, digits, '.', '-' or '_' and be 20-200 characters long."
             )
             AuraDiagnostics.setGeminiStatus(ServiceStatus.FAILED)
             return false
@@ -758,7 +758,7 @@ class AuraViewModel(private val repository: AuraRepository) : ViewModel() {
                     module = "GEMINI_API",
                     level = "ERROR",
                     message = "Format validation failed: custom key does not match Gemini standards.",
-                    details = "Key must start with 'AIzaSy', contain only letters/digits/hyphens/underscores, and be 35-45 characters long."
+                    details = "Key may only contain letters, digits, '.', '-' or '_' and be 20-200 characters long."
                 )
                 AuraDiagnostics.setGeminiStatus(ServiceStatus.FAILED)
                 return@launch
@@ -798,8 +798,12 @@ class AuraViewModel(private val repository: AuraRepository) : ViewModel() {
     fun isValidGeminiApiKey(key: String): Boolean {
         val trimmed = key.trim()
         if (trimmed.isEmpty()) return true
-        // Format validation: must start with 'AIzaSy', consist of alphanumeric/hyphen/underscore, and be 35-45 characters long
-        return trimmed.startsWith("AIzaSy") && trimmed.length in 35..45 && trimmed.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+        // Google issues more than one API-key shape: the classic "AIzaSy..." keys
+        // (~39 chars) and newer AI Studio keys (e.g. "AQ.<...>") that contain dots
+        // and are longer. Only sanity-check the shape here — the authoritative check
+        // is the network handshake below, which will reject a genuinely bad key.
+        return trimmed.length in 20..200 &&
+            trimmed.all { it.isLetterOrDigit() || it == '-' || it == '_' || it == '.' }
     }
 
     fun resetApiSettingsToDefaults() {
