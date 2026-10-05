@@ -4648,7 +4648,7 @@ fun ProfileConfigurationPanel(
                             focusedTextColor = TextLight,
                             unfocusedTextColor = TextLight
                         ),
-                        placeholder = { Text("e.g. gemini-3.5-flash", color = TextMuted.copy(alpha = 0.5f)) },
+                        placeholder = { Text("e.g. gemini-2.5-flash", color = TextMuted.copy(alpha = 0.5f)) },
                         modifier = Modifier.fillMaxWidth().testTag("model_field")
                     )
 

@@ -661,7 +661,7 @@ class AuraViewModel(private val repository: AuraRepository) : ViewModel() {
                     val modelName = if (GeminiKeyManager.customModelOverride.isNotBlank()) {
                         GeminiKeyManager.customModelOverride
                     } else {
-                        "gemini-3.5-flash"
+                        "gemini-2.5-flash"
                     }
                     val response = com.example.data.network.RetrofitClient.service.generateContent(modelName, apiKey, request)
                     val result = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
@@ -710,7 +710,7 @@ class AuraViewModel(private val repository: AuraRepository) : ViewModel() {
             val modelName = if (GeminiKeyManager.customModelOverride.isNotBlank()) {
                 GeminiKeyManager.customModelOverride
             } else {
-                "gemini-3.5-flash"
+                "gemini-2.5-flash"
             }
             val response = com.example.data.network.RetrofitClient.service.generateContent(modelName, apiKey, request)
             val result = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
@@ -777,7 +777,7 @@ class AuraViewModel(private val repository: AuraRepository) : ViewModel() {
                         )
                     )
                 )
-                val response = com.example.data.network.RetrofitClient.service.generateContent("gemini-3.5-flash", apiKey, request)
+                val response = com.example.data.network.RetrofitClient.service.generateContent("gemini-2.5-flash", apiKey, request)
                 val result = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 if (result != null) {
                     AuraDiagnostics.log("GEMINI_API", "INFO", "Geographical handshake verified successfully. Connection is fully authorized.", "Result: $result")

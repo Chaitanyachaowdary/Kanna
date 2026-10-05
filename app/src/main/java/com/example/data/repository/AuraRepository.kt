@@ -197,7 +197,7 @@ class AuraRepository(
             return "Aura Key Error: Please configure your GEMINI_API_KEY inside the Secrets Panel of AI Studio to proceed."
         }
 
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
 
         // Strictly local processing, absolute user-permission instruction
         val systemInstructionText = """
@@ -288,7 +288,7 @@ class AuraRepository(
             )
         }
 
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
 
         val meetingContextStr = if (isCurrentInMeeting) {
             "\nCRITICAL STATE ALERT: The user is currently in an active scheduled calendar event or meeting right now. Therefore, filter notification urgency more strictly. Only tag as URGENT if it is a real-time emergency. Otherwise, you must state that it is deferred during their active meeting in your summary and categorize it as NORMAL or LOW."
@@ -381,7 +381,7 @@ class AuraRepository(
             return Pair("Please enter an API Key first.", "Drafting requires GEMINI_API_KEY.")
         }
 
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
 
         val searchPrefix = if (researchMode) {
             """
@@ -447,7 +447,7 @@ class AuraRepository(
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
             return "Unable to process. Please enter an API Key first."
         }
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
 
         val prompt = """
             You are Kanna AI, an advanced secure mobile assistant command core.
@@ -487,7 +487,7 @@ class AuraRepository(
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
             return Pair("Requires Gemini Key.", "Please configure your API Key in the settings panel.")
         }
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
 
         val prompt = """
             You are Aura, localized social media assistant.
@@ -545,7 +545,7 @@ class AuraRepository(
             return localFallback
         }
 
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
         val prompt = """
             You are Aura AI context-aware assistant. Given a mobile notification, generate EXACTLY 3 highly relevant, brief one-tap quick-replies (each under 8 words) of differing tones.
             
@@ -626,7 +626,7 @@ class AuraRepository(
             return localFallbackDigest
         }
 
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
         val notifDescriptions = notificationsList.joinToString("\n") { notif ->
             "- App: ${notif.packageName}, From: ${notif.title}, Content: ${notif.text}"
         }
@@ -703,7 +703,7 @@ class AuraRepository(
             ))
             return fallback
         }
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
         val prompt = "You are Aura, Chaitanya's assistant. You have answered Chaitanya's phone call. Respond concisely to the caller's remark: '$callerText' in under 25 words with polite professional assistive behavior."
         val request = GenerateContentRequest(
             contents = listOf(Content(role = "user", parts = listOf(Part(text = prompt)))),
@@ -740,7 +740,7 @@ class AuraRepository(
             ))
             return fallback
         }
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
         val prompt = "You are Aura, the AI assistant of Chaitanya. Below is a live call screening transcript. Aura lifted the call and discussed with the caller as Chaitanya was absent. Summarize the call discussion beautifully for Chaitanya. Highlight core query, urgent takeaways and key next-steps.\n\nTranscript:\n$transcript"
         val request = GenerateContentRequest(
             contents = listOf(Content(role = "user", parts = listOf(Part(text = prompt)))),
@@ -791,7 +791,7 @@ class AuraRepository(
             ))
             return fallback
         }
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
         val prompt = "You are Kanna, AI Social Growth Researcher. Analyze the trending topic: '$trendTopic' on the platform '$platform'. Find what the best style of trending poster or video would be, list 2 mock high-reach posts, and generate a precise, high-engagement comment that the user can copy/paste to boost their profile metrics."
         val request = GenerateContentRequest(
             contents = listOf(Content(role = "user", parts = listOf(Part(text = prompt)))),
@@ -822,7 +822,7 @@ class AuraRepository(
             ))
             return fallback
         }
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
         val prompt = "You are Kanna, a high-reach social writer. Create a complete, engaging LinkedIn post about: '$topic'. Adhere strictly to a '$tone' personality tone (Formal, Casual, or Enthusiastic). Produce a full post with layout formatting, an illustrative description for an accompanying poster graphic, matching hashtags, and appropriate professional mentions (@)."
         val request = GenerateContentRequest(
             contents = listOf(Content(role = "user", parts = listOf(Part(text = prompt)))),
@@ -853,7 +853,7 @@ class AuraRepository(
             ))
             return fallback
         }
-        val modelName = if (highThinking) "gemini-3.1-pro-preview" else "gemini-3.5-flash"
+        val modelName = if (highThinking) "gemini-2.5-pro" else "gemini-2.5-flash"
         val prompt = "You are Kanna, Chaitanya's secure assistant. You joined the meeting: '$meetingTopic' on his behalf. Answer the user's question: '$question' strictly based on this transcript of the meeting:\n\n$transcript"
         val request = GenerateContentRequest(
             contents = listOf(Content(role = "user", parts = listOf(Part(text = prompt)))),
@@ -888,7 +888,7 @@ class AuraRepository(
             contents = listOf(Content(role = "user", parts = listOf(Part(text = promptText))))
         )
         return try {
-            val response = RetrofitClient.service.generateContent("gemini-3.5-flash", apiKey, request)
+            val response = RetrofitClient.service.generateContent("gemini-2.5-flash", apiKey, request)
             val responseText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Kanna participated as representing node. Session summary successfully recorded."
             insertAiAction(AiActionHistoryEntity(
                 actionType = "Meeting Summary",
